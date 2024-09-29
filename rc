@@ -141,7 +141,8 @@ class RiskCone:
                                  name='Forward Curve', line=dict(color=abc_color('darkblue'))))
 
         if annot:
-            fig.add_annotation(x=risk_cone.index[-1], y=risk_cone['Forward Curve'].iloc[-1],
+            fig.add_annotation(x=risk_cone.index[-1] - pd.Timedelta(days=10),  # Shifted left by 10 days
+                               y=risk_cone['Forward Curve'].iloc[-1],
                                text=f'{risk_cone["Forward Curve"].iloc[-1]:{annot_format}}',
                                showarrow=True, arrowhead=2)
 
@@ -152,23 +153,27 @@ class RiskCone:
         for i, p in enumerate(self.labels_percentile):
             fig.add_trace(go.Scatter(x=risk_cone.index, y=risk_cone[p], mode='lines',
                                      name=f'{p}', line=dict(color=color_percentiles[i], dash='dash')))
-            fig.add_annotation(x=risk_cone.index[-1], y=risk_cone[p].iloc[-1],
+            fig.add_annotation(x=risk_cone.index[-1] - pd.Timedelta(days=10),  # Shifted left by 10 days
+                               y=risk_cone[p].iloc[-1],
                                text=f'{risk_cone[p].iloc[-1]:{annot_format}}',
                                showarrow=True, arrowhead=2)
 
-        # Highlight specific dates
+        # Highlight specific dates and add annotations
         if highlights is not None:
             for label, dh in highlights.items():
                 fig.add_vline(x=dh, line=dict(color='black', dash='dash'), name=label)
+                # Add annotations above the vertical lines for 3m, 6m, 1y
+                fig.add_annotation(x=dh, y=max(risk_cone['Forward Curve']),
+                                   text=label, showarrow=False, yshift=15)
 
         # Set layout for the figure
         fig.update_layout(
-            title=name,
+            title={'text': name, 'x': 0.5, 'xanchor': 'center', 'y': 0.95},  # Center and move title closer
             xaxis_title=xlabel,
             yaxis_title=ylabel,
             xaxis_tickformat=xformat,
             yaxis_tickformat=yformat,
-            legend=dict(yanchor="bottom", xanchor="center", x=0.5, y=-0.3),
+            legend=dict(yanchor="bottom", xanchor="center", x=0.5, y=-0.4),  # Move the legend lower
             height=figsize[1],
             width=figsize[0]
         )
@@ -191,8 +196,8 @@ end_date = business_day_offset(pricing_date + relativedelta(years=1), -1, roll='
 start_date = business_day_offset(pricing_date - relativedelta(years=1), -1, roll='forward')
 
 # Highlight dates
-dates_highlight = {'6m': business_day_offset(pricing_date + relativedelta(months=6), -1, roll='forward'),
-                   '9m': business_day_offset(pricing_date + relativedelta(months=9), -1, roll='forward'),
+dates_highlight = {'3m': business_day_offset(pricing_date + relativedelta(months=3), -1, roll='forward'),
+                   '6m': business_day_offset(pricing_date + relativedelta(months=6), -1, roll='forward'),
                    '1y': end_date}
 
 # Create risk cone object
