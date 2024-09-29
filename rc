@@ -17,18 +17,17 @@ from datetime import date
 
 
 def abc_color(c):
-    color_dict = {'darkblue': (0/255, 53/255, 95/255),
-                  'blue': (115/255, 153/255, 198/255),
-                  'lightgrey': (221/255, 221/255, 221/255),
-                  'gold': (255/255, 204/255, 0/255),
-                  'darkred': (192/255, 0/255, 0/255),
-                  'green': (0/255, 176/255, 80/255),
-                  'maroon': (139/255, 14/255, 4/255),
-                  'pink': (181/255, 125/255, 181/255),
-                 }
-    # Convert color from tuple to RGB format for Plotly
-    rgb_color = 'rgb({},{},{})'.format(int(color_dict[c][0]*255), int(color_dict[c][1]*255), int(color_dict[c][2]*255))
-    return rgb_color
+    color_dict = {
+        'darkblue': 'rgb(0, 53, 95)',
+        'blue': 'rgb(115, 153, 198)',
+        'lightgrey': 'rgb(221, 221, 221)',
+        'gold': 'rgb(255, 204, 0)',
+        'darkred': 'rgb(192, 0, 0)',
+        'green': 'rgb(0, 176, 80)',
+        'maroon': 'rgb(139, 14, 4)',
+        'pink': 'rgb(181, 125, 181)'
+    }
+    return color_dict[c]
 
 class RiskCone:
     def __init__(self, pricing_date, end_date, ccy_under, ccy_over, ccy_payout=None, freq='W_FRI', csa_term='USD-1',
@@ -148,14 +147,11 @@ class RiskCone:
 
         # Plot risk cone percentiles
         if color_percentiles is None:
-            color_percentiles = sns.color_palette("cubehelix", len(self.labels_percentile))
+            color_percentiles = ['rgb(255,0,0)', 'rgb(0,255,0)']  # Use red and green for the percentiles
 
         for i, p in enumerate(self.labels_percentile):
             fig.add_trace(go.Scatter(x=risk_cone.index, y=risk_cone[p], mode='lines',
-                                     name=f'{p}', line=dict(color='rgb({},{},{})'.format(
-                                         int(255 * color_percentiles[i][0]),
-                                         int(255 * color_percentiles[i][1]),
-                                         int(255 * color_percentiles[i][2])), dash='dash')))
+                                     name=f'{p}', line=dict(color=color_percentiles[i], dash='dash')))
             fig.add_annotation(x=risk_cone.index[-1], y=risk_cone[p].iloc[-1],
                                text=f'{risk_cone[p].iloc[-1]:{annot_format}}',
                                showarrow=True, arrowhead=2)
@@ -217,7 +213,7 @@ historical_spot = risk.historical_spot(start_date, pricing_date)
 
 # Plot risk cone
 risk.plot(risk_cone=grid, highlights=dates_highlight, hist_spot=historical_spot,
-          color_percentiles=['red', 'green'], show_current_spot=False,
+          color_percentiles=['rgb(255,0,0)', 'rgb(0,255,0)'], show_current_spot=False,
           figsize=(700, 500),
           annot_format='0.2f', yformat='.2f', xformat='%d%b%y', ylabel='{}{} Spot'.format(ccy_under, ccy_over),
           name='EURUSD-RiskCone')
