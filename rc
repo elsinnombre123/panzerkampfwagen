@@ -27,7 +27,9 @@ def abc_color(c):
                   'maroon': (139/255, 14/255, 4/255),
                   'pink': (181/255, 125/255, 181/255),
                  }
-    return color_dict[c]
+    # Convert color from tuple to RGB format for Plotly
+    rgb_color = 'rgb({},{},{})'.format(int(color_dict[c][0]*255), int(color_dict[c][1]*255), int(color_dict[c][2]*255))
+    return rgb_color
 
 class RiskCone:
     def __init__(self, pricing_date, end_date, ccy_under, ccy_over, ccy_payout=None, freq='W_FRI', csa_term='USD-1',
@@ -82,8 +84,9 @@ class RiskCone:
         return df
 
     def risk_cone(self, percentiles, label_fmt='{:.0f}th Percentile'):
-        binaries = Portfolio([Portfolio([tdapi.FXForwardBuilder(
-            over=self.ccy_over, under=self.ccy_under, payoutunit=self.ccy_payout,
+        # Using FXBinaryBuilder instead of FXForwardBuilder
+        binaries = Portfolio([Portfolio([tdapi.FXBinaryBuilder(
+            over=self.ccy_over, under=self.ccy_under, payout=self.ccy_payout,
             expiry=t, strike='p={}'.format(p if p <= 0.50 else 1-p),
             optiontype='Put' if p <= 0.50 else 'Call', premiumsettledate='0b', premium=0) for p in percentiles]) for t in self.date_range])
         forwards = Portfolio([tdapi.FXForwardBuilder(over=self.ccy_over, under=self.ccy_under, expirysettledate=t) for t in self.date_range])
@@ -150,7 +153,10 @@ class RiskCone:
 
         for i, p in enumerate(self.labels_percentile):
             fig.add_trace(go.Scatter(x=risk_cone.index, y=risk_cone[p], mode='lines',
-                                     name=f'{p}', line=dict(color='rgb({},{},{})'.format(*[int(255 * x) for x in color_percentiles[i]]), dash='dash')))
+                                     name=f'{p}', line=dict(color='rgb({},{},{})'.format(
+                                         int(255 * color_percentiles[i][0]),
+                                         int(255 * color_percentiles[i][1]),
+                                         int(255 * color_percentiles[i][2])), dash='dash')))
             fig.add_annotation(x=risk_cone.index[-1], y=risk_cone[p].iloc[-1],
                                text=f'{risk_cone[p].iloc[-1]:{annot_format}}',
                                showarrow=True, arrowhead=2)
