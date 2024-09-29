@@ -1,0 +1,218 @@
+import abc_quant_internal.tdapi as tdapi
+from abc_quant_internal.boltweb import valuation
+from abc_quant.risk import MarketDataPattern, MarketDataShock, MarketDataShockType, MarketDataShockBasedScenario
+from abc_quant.markets import PricingContext, HistoricalPricingContext
+from abc_quant.markets.portfolio import Portfolio
+
+import pandas as pd
+import numpy as np
+
+import seaborn as sns
+from plotly.subplots import make_subplots
+import plotly.graph_objs as go
+
+from dateutil.relativedelta import relativedelta
+from abc_quant.datetime import business_day_offset
+from datetime import date
+
+# Fixing font size setup for Plotly - not needed in the same way as matplotlib, so removed
+
+def abc_color(c):
+    color_dict = {'darkblue': (0/255, 53/255, 95/255),
+                  'blue': (115/255, 153/255, 198/255),
+                  'lightgrey': (221/255, 221/255, 221/255),
+                  'gold': (255/255, 204/255, 0/255),
+                  'darkred': (192/255, 0/255, 0/255),
+                  'green': (0/255, 176/255, 80/255),
+                  'maroon': (139/255, 14/255, 4/255),
+                  'pink': (181/255, 125/255, 181/255),
+                 }
+    return color_dict[c]
+
+class RiskCone:
+    def __init__(self, pricing_date, end_date, ccy_under, ccy_over, ccy_payout=None, freq='W_FRI', csa_term='USD-1',
+                 market_data_location='NYC', print_spot=False):
+        self.pricing_date = pricing_date
+        self.end_date = end_date
+        self.ccy_under = ccy_under
+        self.ccy_over = ccy_over
+        self.ccy_payout = ccy_payout if ccy_payout is not None else ccy_over
+        self.cross = '{}/{}'.format(ccy_over, ccy_under)
+        self.freq = freq
+        self.csa_term = csa_term
+        self.market_data_location = market_data_location
+
+        # get spot ref
+        fwd = tdapi.FXForwardBuilder(over=self.ccy_over, under=self.ccy_under, expirysettledate='0b')
+        with PricingContext(pricing_date=pricing_date, csa_term=self.csa_term, market_data_location=self.market_data_location):
+            fwd.resolve(in_place=True)
+        self.spot_current, self.spot_custom = fwd.strike, False
+        if print_spot:
+            print('{}{} Spot Reference ({} Pricing date, {}, {}): {}'.format(
+                ccy_under, ccy_over, pricing_date, csa_term, market_data_location, self.spot_current))
+
+        date_range = pd.bdate_range(self.pricing_date, self.end_date, freq=freq).date.tolist()
+        if date_range[0] == self.pricing_date:
+            date_range = date_range[1:]
+        if date_range[-1] != self.end_date:
+            date_range.append(self.end_date)
+
+        self.date_range = date_range
+
+    def custom_spot(self, spot_ref):
+        self.spot_current = spot_ref
+        self.spot_custom = True
+
+    def add_dates(self, date_array):
+        for d in date_array:
+            if d not in self.date_range:
+                self.date_range.append(d)
+
+    def historical_spot(self, start_date, end_date):
+        fwd = tdapi.FXForwardBuilder(over=self.ccy_over, under=self.ccy_under, expirysettledate='0b')
+
+        with HistoricalPricingContext(start=start_date, end=end_date, csa_term=self.csa_term, market_data_location=self.market_data_location):
+            fwd.resolve(in_place=False)
+            risks = fwd.calc(valuation('FXSpot'))
+
+        df = pd.DataFrame(risks.result(), columns=['Historical Spot'])
+        if self.spot_custom and self.pricing_date in df.index:
+            df.loc[self.pricing_date]['Historical Spot'] = self.spot_current
+
+        return df
+
+    def risk_cone(self, percentiles, label_fmt='{:.0f}th Percentile'):
+        binaries = Portfolio([Portfolio([tdapi.FXForwardBuilder(
+            over=self.ccy_over, under=self.ccy_under, payoutunit=self.ccy_payout,
+            expiry=t, strike='p={}'.format(p if p <= 0.50 else 1-p),
+            optiontype='Put' if p <= 0.50 else 'Call', premiumsettledate='0b', premium=0) for p in percentiles]) for t in self.date_range])
+        forwards = Portfolio([tdapi.FXForwardBuilder(over=self.ccy_over, under=self.ccy_under, expirysettledate=t) for t in self.date_range])
+
+        if self.spot_custom:
+            scenario = MarketDataShockBasedScenario(shocks={MarketDataPattern('FX', self.cross):
+                                                           MarketDataShock(MarketDataShockType.Override, self.spot_current)})
+            with PricingContext(pricing_date=self.pricing_date, csa_term=self.csa_term, market_data_location=self.market_data_location), scenario:
+                binaries.resolve(in_place=True)
+                forwards.resolve(in_place=True)
+
+        else:
+            with PricingContext(pricing_date=self.pricing_date, csa_term=self.csa_term, market_data_location=self.market_data_location):
+                binaries.resolve(in_place=True)
+                forwards.resolve(in_place=True)
+
+        labels = [label_fmt.format(100 * p) for p in percentiles]
+        df = pd.DataFrame([(i.strike for i in p.priceables) for p in binaries.priceables], columns=labels, index=self.date_range)
+        df['Forward Curve'] = [i.strike for i in forwards.priceables]
+        df['Current Spot'] = [self.spot_current for x in df.index]
+
+        df = pd.concat([pd.DataFrame({x: self.spot_current for x in df.columns}, index=[self.pricing_date]), df], axis=0)
+        df.sort_index(inplace=True)
+
+        self.labels_percentile = labels
+
+        return df
+
+    def plot(self, risk_cone=None, highlights=None, hist_spot=None, show_current_spot=False,
+             color_percentiles=None, figsize=(700, 500), fontsize=8, xformat='%b-%y', yformat='.2f',
+             xlabel=None, ylabel='Spot', annot=True, annot_format='0.2f', legend_loc='lower center',
+             legend_bbox=(0.5, -0.25), legend_frame=False, offset_last_text=(5, 0),
+             offset_last_label=(10, 15), offset_highlight_text=(0, 12), offset_highlight_label=(0, 25), name='RiskCone', save=False):
+
+        # Initialize the Plotly figure
+        fig = go.Figure()
+
+        # Plot historical spot data
+        if hist_spot is not None:
+            fig.add_trace(go.Scatter(x=hist_spot.index, y=hist_spot['Historical Spot'],
+                                     mode='lines', name='Historical Spot',
+                                     line=dict(color=abc_color('blue'))))
+
+        # Plot current spot line if required
+        if show_current_spot:
+            fig.add_trace(go.Scatter(x=risk_cone.index, y=risk_cone['Current Spot'], mode='lines',
+                                     name='Current Spot', line=dict(color='black', dash='dot')))
+            fig.add_annotation(x=risk_cone.index[-1], y=risk_cone['Current Spot'].iloc[-1],
+                               text=f'{risk_cone["Current Spot"].iloc[-1]:{annot_format}}',
+                               showarrow=True, arrowhead=2)
+
+        # Plot forward curve
+        fig.add_trace(go.Scatter(x=risk_cone.index, y=risk_cone['Forward Curve'], mode='lines',
+                                 name='Forward Curve', line=dict(color=abc_color('darkblue'))))
+
+        if annot:
+            fig.add_annotation(x=risk_cone.index[-1], y=risk_cone['Forward Curve'].iloc[-1],
+                               text=f'{risk_cone["Forward Curve"].iloc[-1]:{annot_format}}',
+                               showarrow=True, arrowhead=2)
+
+        # Plot risk cone percentiles
+        if color_percentiles is None:
+            color_percentiles = sns.color_palette("cubehelix", len(self.labels_percentile))
+
+        for i, p in enumerate(self.labels_percentile):
+            fig.add_trace(go.Scatter(x=risk_cone.index, y=risk_cone[p], mode='lines',
+                                     name=f'{p}', line=dict(color='rgb({},{},{})'.format(*[int(255 * x) for x in color_percentiles[i]]), dash='dash')))
+            fig.add_annotation(x=risk_cone.index[-1], y=risk_cone[p].iloc[-1],
+                               text=f'{risk_cone[p].iloc[-1]:{annot_format}}',
+                               showarrow=True, arrowhead=2)
+
+        # Highlight specific dates
+        if highlights is not None:
+            for label, dh in highlights.items():
+                fig.add_vline(x=dh, line=dict(color='black', dash='dash'), name=label)
+
+        # Set layout for the figure
+        fig.update_layout(
+            title=name,
+            xaxis_title=xlabel,
+            yaxis_title=ylabel,
+            xaxis_tickformat=xformat,
+            yaxis_tickformat=yformat,
+            legend=dict(yanchor="bottom", xanchor="center", x=0.5, y=-0.3),
+            height=figsize[1],
+            width=figsize[0]
+        )
+
+        if save:
+            fig.write_image(f"{name}.png")
+
+        fig.show()
+
+
+# Run the script
+ccy_under, ccy_over = 'EUR', 'USD'
+ccy_payout = 'EUR'
+percentiles = [0.95, 0.05]
+custom_spot = None
+
+# Set pricing and end date for risk cone, and date start for historical spot
+pricing_date = business_day_offset(date.today(), -1, roll='forward')
+end_date = business_day_offset(pricing_date + relativedelta(years=1), -1, roll='forward')
+start_date = business_day_offset(pricing_date - relativedelta(years=1), -1, roll='forward')
+
+# Highlight dates
+dates_highlight = {'6m': business_day_offset(pricing_date + relativedelta(months=6), -1, roll='forward'),
+                   '9m': business_day_offset(pricing_date + relativedelta(months=9), -1, roll='forward'),
+                   '1y': end_date}
+
+# Create risk cone object
+risk = RiskCone(pricing_date, end_date, ccy_under, ccy_over, ccy_payout=ccy_payout, freq='W-FRI', csa_term='USD-1', market_data_location='NYC', print_spot=True)
+
+if len(dates_highlight) != 0:
+    risk.add_dates(dates_highlight.values())
+
+# Overwrite spot ref
+if custom_spot is not None:
+    risk.custom_spot(custom_spot)
+
+# Get risk cones
+grid = risk.risk_cone(percentiles, label_fmt='{:.0f}th Percentile')
+
+# Get historical spot
+historical_spot = risk.historical_spot(start_date, pricing_date)
+
+# Plot risk cone
+risk.plot(risk_cone=grid, highlights=dates_highlight, hist_spot=historical_spot,
+          color_percentiles=['red', 'green'], show_current_spot=False,
+          figsize=(700, 500),
+          annot_format='0.2f', yformat='.2f', xformat='%d%b%y', ylabel='{}{} Spot'.format(ccy_under, ccy_over),
+          name='EURUSD-RiskCone')
