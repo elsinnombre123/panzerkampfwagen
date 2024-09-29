@@ -15,7 +15,6 @@ from dateutil.relativedelta import relativedelta
 from abc_quant.datetime import business_day_offset
 from datetime import date
 
-# Fixing font size setup for Plotly - not needed in the same way as matplotlib, so removed
 
 def abc_color(c):
     color_dict = {'darkblue': (0/255, 53/255, 95/255),
@@ -84,9 +83,9 @@ class RiskCone:
         return df
 
     def risk_cone(self, percentiles, label_fmt='{:.0f}th Percentile'):
-        # Using FXBinaryBuilder instead of FXForwardBuilder
+        # Using FXBinaryBuilder with payoutunit
         binaries = Portfolio([Portfolio([tdapi.FXBinaryBuilder(
-            over=self.ccy_over, under=self.ccy_under, payout=self.ccy_payout,
+            over=self.ccy_over, under=self.ccy_under, payoutunit=self.ccy_payout,
             expiry=t, strike='p={}'.format(p if p <= 0.50 else 1-p),
             optiontype='Put' if p <= 0.50 else 'Call', premiumsettledate='0b', premium=0) for p in percentiles]) for t in self.date_range])
         forwards = Portfolio([tdapi.FXForwardBuilder(over=self.ccy_over, under=self.ccy_under, expirysettledate=t) for t in self.date_range])
