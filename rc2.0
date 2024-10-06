@@ -64,6 +64,14 @@ class RiskConeEngine(AnalyticsEngine):
             fwd.resolve(in_place=True)
         return fwd.strike
 
+    def historical_spot(self, start_date, end_date):
+        # Fetch historical spot data
+        fwd = tdapi.FXForwardBuilder(over=self.ccy_over, under=self.ccy_under, expirysettledate='0b')
+        with HistoricalPricingContext(start=start_date, end=end_date, csa_term=self.csa_term, market_data_location=self.market_data_location):
+            fwd.resolve(in_place=False)
+            risks = fwd.calc(valuation('FXSpot'))
+        return pd.DataFrame(risks.result(), columns=['Historical Spot'], index=pd.date_range(start=start_date, end=end_date))
+
     def risk_cone(self) -> pd.DataFrame:
         spot_current = self.calculate_spot()
         binaries = Portfolio([Portfolio([tdapi.FXBinaryBuilder(
@@ -87,7 +95,6 @@ class RiskConeEngine(AnalyticsEngine):
         df.sort_index(inplace=True)
         return df.round(self.precision)
 
-    # Add process method to meet the abstract requirement
     def process(self) -> pd.DataFrame:
         return self.risk_cone()
 
@@ -100,11 +107,20 @@ class RiskConeComponent(AnalyticsComponent):
 
     def get_visualization(self) -> go.Figure:
         df = self.engine.process()  # Call process to get risk cone data
+        spot_current = df['Current Spot'].iloc[0]  # Assuming spot_current is the first value in 'Current Spot' column
+        
+        # Fetch historical spot data
+        hist_spot_df = self.engine.historical_spot(self.engine.pricing_date - relativedelta(years=1), self.engine.pricing_date)
+
         fig = go.Figure()
+
+        # Plot historical spot line
+        fig.add_trace(go.Scatter(x=hist_spot_df.index, y=hist_spot_df['Historical Spot'], mode='lines', 
+                                 name='Historical Spot', line=dict(color=abc_color('darkblue'))))
 
         # Plot forward curve
         fig.add_trace(go.Scatter(x=df.index, y=df['Forward Curve'], mode='lines', name='Forward Curve',
-                                 line=dict(color=abc_color('darkblue'))))
+                                 line=dict(color=abc_color('blue'))))
 
         # Plot percentiles
         colors = ['#FF0000', '#00FF00', '#FFA500', '#00FFFF']
@@ -124,13 +140,15 @@ class RiskConeComponent(AnalyticsComponent):
             xaxis_title="Date",
             yaxis_title="Spot",
             legend=dict(yanchor="top", xanchor="center", x=0.5, y=-0.3),
-            yaxis_range=[df.min().min() * 0.9, df.max().max() * 1.1]
+            yaxis_range=[df.min().min() * 0.9, df.max().max() * 1.1],
+            width=900,  # Adjust width
+            height=600  # Adjust height
         )
         return fig
 
     @staticmethod
     def get_default_params() -> Dict[str, object]:
-        return {'cross': 'EURUSD'}  # Replace with appropriate default parameters
+        return {'cross': 'EURUSD'}
 
     def get_visualization_parameters(self) -> VisualizationParameters:
         return VisualizationParameters(show_legend=True, precision=2)
