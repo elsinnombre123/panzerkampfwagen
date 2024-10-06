@@ -1,0 +1,179 @@
+# ENGINE
+import pandas as pd
+import numpy as np
+from abc_quant.datetime import business_day_offset
+from abc_quant.risk import MarketDataPattern, MarketDataShock, MarketDataShockType, MarketDataShockBasedScenario
+from abc_quant.markets import PricingContext
+from abc_quant_internal.tdapi import FXForwardBuilder, FXBinaryBuilder
+from abc_quant_analytics.interfaces.analytics_engine_interface import AnalyticsEngine
+from abc_quant_analytics.utils.caching.decorators import cached_val
+from typing import List, Union
+import datetime as dt
+from enum import Enum
+from abc_quant.datetime.relative_date import RelativeDate
+from abc_quant_analytics.utils.date.date_utils import get_date_from_relative_date
+
+
+class Percentiles(Enum):
+    P95 = 0.95
+    P05 = 0.05
+    P90 = 0.90
+    P10 = 0.10
+
+class RiskConeEngine(AnalyticsEngine):
+    def __init__(self, 
+                 ccy_under: str = 'EUR', 
+                 ccy_over: str = 'USD', 
+                 ccy_payout: str = None, 
+                 pricing_date: Union[dt.date, RelativeDate] = RelativeDate('-1b'),
+                 end_date: Union[dt.date, RelativeDate] = RelativeDate('+1y'),
+                 freq: str = 'W-FRI',
+                 csa_term: str = 'USD-1',
+                 market_data_location: str = 'NYC',
+                 percentiles: List[Percentiles] = (Percentiles.P95, Percentiles.P05, Percentiles.P90, Percentiles.P10),
+                 precision: int = 4):
+        super().__init__()
+        self.ccy_under = ccy_under
+        self.ccy_over = ccy_over
+        self.ccy_payout = ccy_payout or ccy_over  # Fixed the default fallback to ccy_over
+        self.pricing_date = pricing_date
+        self.end_date = end_date
+        self.freq = freq
+        self.csa_term = csa_term
+        self.market_data_location = market_data_location
+        self.percentiles = [p.value for p in percentiles]
+        self.precision = precision
+
+    @cached_val
+    def process(self) -> pd.DataFrame:
+        pricing_date = get_date_from_relative_date(self.pricing_date)
+        end_date = get_date_from_relative_date(self.end_date)
+        fwd = FXForwardBuilder(over=self.ccy_over, under=self.ccy_under, expirysettledate='0b')
+
+        # Get spot reference
+        with PricingContext(pricing_date=pricing_date, csa_term=self.csa_term, market_data_location=self.market_data_location):
+            fwd.resolve(in_place=True)
+        spot_current = fwd.strike
+
+        # Create date range for the cone
+        date_range = pd.bdate_range(pricing_date, end_date, freq=self.freq).date.tolist()
+        if date_range[0] == pricing_date:
+            date_range = date_range[1:]
+        if date_range[-1] != end_date:
+            date_range.append(end_date)
+
+        # Create portfolio of binaries for the risk cone
+        binaries = [FXBinaryBuilder(
+            over=self.ccy_over, under=self.ccy_under, payoutunit=self.ccy_payout,
+            expiry=t, strike='p={}'.format(p if p <= 0.50 else 1 - p),
+            optiontype='Put' if p <= 0.50 else 'Call', premiumsettledate='0b', premium=0) 
+            for p in self.percentiles for t in date_range]
+
+        # Forward portfolio
+        forwards = [FXForwardBuilder(over=self.ccy_over, under=self.ccy_under, expirysettledate=t) for t in date_range]
+
+        # Scenario (if spot is customized)
+        scenario = MarketDataShockBasedScenario(shocks={MarketDataPattern('FX', f'{self.ccy_over}/{self.ccy_under}'):
+                                                        MarketDataShock(MarketDataShockType.Override, spot_current)})
+
+        # Resolve portfolios
+        with PricingContext(pricing_date=pricing_date, csa_term=self.csa_term, market_data_location=self.market_data_location), scenario:
+            for binary in binaries:
+                binary.resolve(in_place=True)
+            for fwd in forwards:
+                fwd.resolve(in_place=True)
+
+        # Prepare DataFrame
+        columns = [f'{int(p * 100)}th Percentile' for p in self.percentiles]
+        df = pd.DataFrame({
+            'Forward Curve': [fwd.strike for fwd in forwards],
+            **{col: [binary.strike for binary in binaries[i::len(date_range)]] for i, col in enumerate(columns)}
+        }, index=date_range)
+        
+        df['Current Spot'] = spot_current
+        df = pd.concat([pd.DataFrame({col: spot_current for col in df.columns}, index=[pricing_date]), df], axis=0)
+        return df.round(self.precision)
+
+
+# COMPONENT
+from abc_quant_analytics.dataviz.plotly.plotlyviz import PlotlyViz
+from abc_quant_analytics.dataviz.figures.go_line import GoLine
+from abc_quant_analytics.interfaces.analytics_component_interface import AnalyticsComponent, MetaDataKeys
+from typing import Dict
+from abc_quant.markets.securities import Asset
+import datetime as dt
+
+
+class RiskConeComponent(AnalyticsComponent):
+    def __init__(self, 
+                 cross: Asset = None,
+                 ccy_under: str = 'EUR',
+                 ccy_over: str = 'USD',
+                 ccy_payout: str = None,
+                 percentiles: List[Percentiles] = (Percentiles.P95, Percentiles.P05, Percentiles.P90, Percentiles.P10),
+                 pricing_date: Union[dt.date, RelativeDate] = RelativeDate('-1b'),
+                 end_date: Union[dt.date, RelativeDate] = RelativeDate('+1y'),
+                 freq: str = 'W-FRI',
+                 highlight_dates: Dict[str, dt.date] = None):
+        super().__init__()
+        self.cross = cross or self.get_default_params()['cross']
+        self.ccy_under = ccy_under
+        self.ccy_over = ccy_over
+        self.ccy_payout = ccy_payout or ccy_over  # Fixed the default fallback to ccy_over
+        self.pricing_date = pricing_date
+        self.end_date = end_date
+        self.percentiles = percentiles
+        self.freq = freq
+        self.highlight_dates = highlight_dates or {}
+        self.engine = RiskConeEngine(ccy_under=self.ccy_under, ccy_over=self.ccy_over, 
+                                     ccy_payout=self.ccy_payout, pricing_date=self.pricing_date,
+                                     end_date=self.end_date, percentiles=self.percentiles)
+
+    def get_visualization(self) -> PlotlyViz:
+        df = self.engine.process()
+        viz = PlotlyViz(name='Risk Cone Plot')
+        
+        # Plot the forward curve
+        line = GoLine(x=df.index, y=df['Forward Curve'], name='Forward Curve', line=dict(color='#00355F', width=2))
+        viz.add_trace(line)
+
+        # Plot the percentiles
+        colors = ['#FF0000', '#00FF00', '#FFA500', '#00FFFF']
+        for i, percentile in enumerate(self.engine.percentiles):
+            line = GoLine(x=df.index, y=df[f'{int(percentile * 100)}th Percentile'], 
+                          name=f'{int(percentile * 100)}th Percentile', 
+                          line=dict(color=colors[i], dash='dash'), mode='lines')
+            viz.add_trace(line)
+
+        # Add vertical lines for highlights
+        for label, date in self.highlight_dates.items():
+            viz.add_vline(date, label=label)
+
+        viz.update_layout(title=dict(text=self.metadata[MetaDataKeys.Title], font=dict(family="Arial", size=12)))
+        return viz
+
+    @staticmethod
+    def get_default_params() -> Dict[str, object]:
+        return {'cross': Asset('EURUSD', identifier='BLOOMBERG_ID')}
+
+    @property
+    def metadata(self) -> Dict[str, str]:
+        # Construct the dynamic title for the plot
+        title = f"Risk Cone for {self.cross.name}: {self.pricing_date} to {self.end_date}"
+        return {MetaDataKeys.Title: title}
+
+
+# INITIALIZE
+from abc_quant.session import AbcSession
+from abc_quant.markets.securities import SecurityMaster, AssetIdentifier
+AbcSession.use()
+
+RiskConeComponent(
+    cross=SecurityMaster.get_asset('EURUSD', AssetIdentifier.BLOOMBERG_ID),
+    percentiles=[Percentiles.P95, Percentiles.P05, Percentiles.P90, Percentiles.P10],
+    pricing_date=RelativeDate('-1b'),
+    end_date=RelativeDate('+1y'),
+    highlight_dates={'3m': business_day_offset(dt.date.today(), 3, roll='forward'),
+                     '6m': business_day_offset(dt.date.today(), 6, roll='forward'),
+                     '1y': business_day_offset(dt.date.today(), 12, roll='forward')}
+).show()
