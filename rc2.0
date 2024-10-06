@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 # ENGINE
 import pandas as pd
 import numpy as np
@@ -191,7 +193,7 @@ RiskConeComponent(
     percentiles=[Percentiles.P95, Percentiles.P05, Percentiles.P90, Percentiles.P10],
     pricing_date=RelativeDate('-1b'),
     end_date=RelativeDate('+1y'),
-    highlight_dates={'3m': business_day_offset(dt.date.today(), 3, roll='forward'),
-                     '6m': business_day_offset(dt.date.today(), 6, roll='forward'),
-                     '1y': business_day_offset(dt.date.today(), 12, roll='forward')}
+    highlight_dates={'3m': business_day_offset(dt.date.today(), relativedelta(months=3), roll='forward'),
+                     '6m': business_day_offset(dt.date.today(), relativedelta(months=6), roll='forward'),
+                     '1y': business_day_offset(dt.date.today(), relativedelta(years=1), roll='forward')}
 ).show()
