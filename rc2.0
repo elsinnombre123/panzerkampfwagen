@@ -35,7 +35,7 @@ class RiskConeEngine(AnalyticsEngine):
         super().__init__()
         self.ccy_under = ccy_under
         self.ccy_over = ccy_over
-        self.ccy_payout = ccy_payout or ccy_over  # Fixed the default fallback to ccy_over
+        self.ccy_payout = ccy_payout or ccy_over
         self.pricing_date = pricing_date
         self.end_date = end_date
         self.freq = freq
@@ -99,6 +99,7 @@ class RiskConeEngine(AnalyticsEngine):
 from abc_quant_analytics.dataviz.plotly.plotlyviz import PlotlyViz
 from abc_quant_analytics.dataviz.figures.go_line import GoLine
 from abc_quant_analytics.interfaces.analytics_component_interface import AnalyticsComponent, MetaDataKeys
+from abc_quant_analytics.visualization_params import VisualizationParameters
 from typing import Dict
 from abc_quant.markets.securities import Asset
 import datetime as dt
@@ -119,7 +120,7 @@ class RiskConeComponent(AnalyticsComponent):
         self.cross = cross or self.get_default_params()['cross']
         self.ccy_under = ccy_under
         self.ccy_over = ccy_over
-        self.ccy_payout = ccy_payout or ccy_over  # Fixed the default fallback to ccy_over
+        self.ccy_payout = ccy_payout or ccy_over
         self.pricing_date = pricing_date
         self.end_date = end_date
         self.percentiles = percentiles
@@ -155,6 +156,9 @@ class RiskConeComponent(AnalyticsComponent):
     @staticmethod
     def get_default_params() -> Dict[str, object]:
         return {'cross': Asset('EURUSD', identifier='BLOOMBERG_ID')}
+
+    def get_visualization_parameters(self) -> VisualizationParameters:
+        return VisualizationParameters(show_legend=True, precision=self.engine.precision)
 
     @property
     def metadata(self) -> Dict[str, str]:
