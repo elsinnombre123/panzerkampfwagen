@@ -1,19 +1,20 @@
 # Imports
+import abc_quant_internal.tdapi as tdapi
+from abc_quant_internal.boltweb import valuation
+from abc_quant.risk import MarketDataPattern, MarketDataShock, MarketDataShockType, MarketDataShockBasedScenario
+from abc_quant.markets import PricingContext, HistoricalPricingContext
+from abc_quant.markets.portfolio import Portfolio
+from abc_quant.datetime import business_day_offset
 from datetime import date
 from dateutil.relativedelta import relativedelta
 import pandas as pd
 import plotly.graph_objs as go
-from typing import List, Union, Dict
-import abc_quant_internal.tdapi as tdapi
-from abc_quant.risk import MarketDataPattern, MarketDataShock, MarketDataShockType, MarketDataShockBasedScenario
-from abc_quant.markets import PricingContext
-from abc_quant.markets.portfolio import Portfolio
-from abc_quant.datetime import business_day_offset
+from typing import List, Dict
 from abc_quant_analytics.interfaces.analytics_engine_interface import AnalyticsEngine
 from abc_quant_analytics.interfaces.analytics_component_interface import AnalyticsComponent, MetaDataKeys
 from abc_quant_analytics.visualization_params import VisualizationParameters
 
-# Color Dictionary
+# Color dictionary function
 def abc_color(c):
     color_dict = {
         'darkblue': 'rgb(0, 53, 95)',
@@ -31,16 +32,9 @@ def abc_color(c):
 
 # ENGINE
 class RiskConeEngine(AnalyticsEngine):
-    def __init__(self, 
-                 pricing_date: date, 
-                 end_date: date, 
-                 ccy_under: str, 
-                 ccy_over: str, 
-                 ccy_payout: str = None, 
-                 freq: str = 'W-FRI',
-                 csa_term: str = 'USD-1', 
-                 market_data_location: str = 'NYC', 
-                 percentiles: List[float] = [0.95, 0.05, 0.90, 0.10],
+    def __init__(self, pricing_date: date, end_date: date, ccy_under: str, ccy_over: str, 
+                 ccy_payout: str = None, freq: str = 'W-FRI', csa_term: str = 'USD-1', 
+                 market_data_location: str = 'NYC', percentiles: List[float] = [0.95, 0.05, 0.90, 0.10], 
                  precision: int = 4):
         super().__init__()
         self.pricing_date = pricing_date
@@ -53,6 +47,16 @@ class RiskConeEngine(AnalyticsEngine):
         self.market_data_location = market_data_location
         self.percentiles = percentiles
         self.precision = precision
+        self.cross = f"{ccy_over}/{ccy_under}"
+        self.date_range = self.generate_date_range()
+
+    def generate_date_range(self):
+        date_range = pd.bdate_range(self.pricing_date, self.end_date, freq=self.freq).date.tolist()
+        if date_range[0] == self.pricing_date:
+            date_range = date_range[1:]
+        if date_range[-1] != self.end_date:
+            date_range.append(self.end_date)
+        return date_range
 
     def calculate_spot(self):
         fwd = tdapi.FXForwardBuilder(over=self.ccy_over, under=self.ccy_under, expirysettledate='0b')
@@ -62,35 +66,26 @@ class RiskConeEngine(AnalyticsEngine):
 
     def risk_cone(self) -> pd.DataFrame:
         spot_current = self.calculate_spot()
-        date_range = pd.bdate_range(self.pricing_date, self.end_date, freq=self.freq).date.tolist()
-        if date_range[0] == self.pricing_date:
-            date_range = date_range[1:]
-        if date_range[-1] != self.end_date:
-            date_range.append(self.end_date)
+        binaries = Portfolio([Portfolio([tdapi.FXBinaryBuilder(
+            over=self.ccy_over, under=self.ccy_under, payoutunit=self.ccy_payout,
+            expiry=t, strike='p={}'.format(p if p <= 0.50 else 1-p),
+            optiontype='Put' if p <= 0.50 else 'Call', premiumsettledate='0b', premium=0) for p in self.percentiles]) 
+            for t in self.date_range])
 
-        binaries = Portfolio([
-            Portfolio([tdapi.FXBinaryBuilder(
-                over=self.ccy_over, under=self.ccy_under, payoutunit=self.ccy_payout,
-                expiry=t, strike='p={}'.format(p if p <= 0.50 else 1-p),
-                optiontype='Put' if p <= 0.50 else 'Call', premiumsettledate='0b', premium=0) 
-                for p in self.percentiles]) 
-            for t in date_range])
-
-        forwards = Portfolio([tdapi.FXForwardBuilder(over=self.ccy_over, under=self.ccy_under, expirysettledate=t) for t in date_range])
+        forwards = Portfolio([tdapi.FXForwardBuilder(over=self.ccy_over, under=self.ccy_under, expirysettledate=t) for t in self.date_range])
 
         with PricingContext(pricing_date=self.pricing_date, csa_term=self.csa_term, market_data_location=self.market_data_location):
             binaries.resolve(in_place=True)
             forwards.resolve(in_place=True)
 
-        labels = [f'{int(100 * p)}th Percentile' for p in self.percentiles]
-        df = pd.DataFrame([(i.strike for i in p.priceables) for p in binaries.priceables], columns=labels, index=date_range)
+        labels = [f"{int(100 * p)}th Percentile" for p in self.percentiles]
+        df = pd.DataFrame([(i.strike for i in p.priceables) for p in binaries.priceables], columns=labels, index=self.date_range)
         df['Forward Curve'] = [i.strike for i in forwards.priceables]
-        df['Current Spot'] = [spot_current for x in df.index]
+        df['Current Spot'] = [spot_current for _ in df.index]
 
-        df = pd.concat([pd.DataFrame({col: spot_current for col in df.columns}, index=[self.pricing_date]), df], axis=0)
+        df = pd.concat([pd.DataFrame({x: spot_current for x in df.columns}, index=[self.pricing_date]), df], axis=0)
         df.sort_index(inplace=True)
         return df.round(self.precision)
-
 
 # COMPONENT
 class RiskConeComponent(AnalyticsComponent):
@@ -129,6 +124,9 @@ class RiskConeComponent(AnalyticsComponent):
         )
         return fig
 
+    @property
+    def metadata(self) -> Dict[str, str]:
+        return {MetaDataKeys.Title: f"Risk Cone for {self.engine.ccy_over}/{self.engine.ccy_under}"}
 
 # INITIALIZE AND RUN
 pricing_date = business_day_offset(date.today(), -1, roll='forward')
