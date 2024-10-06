@@ -67,7 +67,7 @@ class RiskConeEngine(AnalyticsEngine):
             over=self.ccy_over, under=self.ccy_under, payoutunit=self.ccy_payout,
             expiry=t, strike='p={}'.format(p if p <= 0.50 else 1 - p),
             optiontype='Put' if p <= 0.50 else 'Call', premiumsettledate='0b', premium=0) 
-            for p in self.percentiles for t in date_range]
+            for t in date_range for p in self.percentiles]
 
         # Forward portfolio
         forwards = [FXForwardBuilder(over=self.ccy_over, under=self.ccy_under, expirysettledate=t) for t in date_range]
@@ -85,9 +85,16 @@ class RiskConeEngine(AnalyticsEngine):
 
         # Prepare DataFrame
         columns = [f'{int(p * 100)}th Percentile' for p in self.percentiles]
+        
+        # Extract strikes for each percentile column
+        binary_strikes = {
+            col: [binary.strike for idx, binary in enumerate(binaries) if idx % len(self.percentiles) == i]
+            for i, col in enumerate(columns)
+        }
+        
         df = pd.DataFrame({
             'Forward Curve': [fwd.strike for fwd in forwards],
-            **{col: [binary.strike for binary in binaries[i::len(date_range)]] for i, col in enumerate(columns)}
+            **binary_strikes
         }, index=date_range)
         
         df['Current Spot'] = spot_current
