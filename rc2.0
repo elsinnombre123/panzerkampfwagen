@@ -1,164 +1,148 @@
-# ENGINE
-import datetime as dt
-from enum import Enum
-from typing import Union, List, Dict
+# Imports
+from datetime import date
+from dateutil.relativedelta import relativedelta
 import pandas as pd
-import numpy as np
-from abc_quant.datetime.relative_date import RelativeDate
-from abc_quant.target.assets import Asset
-from abc_quant.timeseries import MqValueError
-from abc_quant_analytics.components.data_providers.dataset_provider import DatasetProvider
+import plotly.graph_objs as go
+from typing import List, Union, Dict
+import abc_quant_internal.tdapi as tdapi
+from abc_quant.risk import MarketDataPattern, MarketDataShock, MarketDataShockType, MarketDataShockBasedScenario
+from abc_quant.markets import PricingContext
+from abc_quant.markets.portfolio import Portfolio
+from abc_quant.datetime import business_day_offset
 from abc_quant_analytics.interfaces.analytics_engine_interface import AnalyticsEngine
-from abc_quant_analytics.utils.caching.decorators import cached_val
-from abc_quant_analytics.utils.date.date_utils import get_date_from_relative_date
+from abc_quant_analytics.interfaces.analytics_component_interface import AnalyticsComponent, MetaDataKeys
+from abc_quant_analytics.visualization_params import VisualizationParameters
 
-class Percentiles(Enum):
-    P95 = 0.95
-    P05 = 0.05
-    P90 = 0.90
-    P10 = 0.10
+# Color Dictionary
+def abc_color(c):
+    color_dict = {
+        'darkblue': 'rgb(0, 53, 95)',
+        'blue': 'rgb(115, 153, 198)',
+        'lightgrey': 'rgb(221, 221, 221)',
+        'gold': 'rgb(255, 204, 0)',
+        'darkred': 'rgb(192, 0, 0)',
+        'green': 'rgb(0, 176, 80)',
+        'maroon': 'rgb(139, 14, 4)',
+        'pink': 'rgb(181, 125, 181)',
+        'orange': 'rgb(255, 165, 0)',
+        'cyan': 'rgb(0, 255, 255)'
+    }
+    return color_dict[c]
 
+# ENGINE
 class RiskConeEngine(AnalyticsEngine):
-    def __init__(self,
-                 cross: Asset,
-                 pricing_date: Union[dt.date, RelativeDate] = RelativeDate('-1b'),
-                 end_date: Union[dt.date, RelativeDate] = RelativeDate('+1y'),
-                 percentiles: List[Percentiles] = (Percentiles.P95, Percentiles.P05, Percentiles.P90, Percentiles.P10),
+    def __init__(self, 
+                 pricing_date: date, 
+                 end_date: date, 
+                 ccy_under: str, 
+                 ccy_over: str, 
+                 ccy_payout: str = None, 
                  freq: str = 'W-FRI',
-                 csa_term: str = 'USD-1',
-                 market_data_location: str = 'NYC',
+                 csa_term: str = 'USD-1', 
+                 market_data_location: str = 'NYC', 
+                 percentiles: List[float] = [0.95, 0.05, 0.90, 0.10],
                  precision: int = 4):
-        
         super().__init__()
-        self.cross = cross
         self.pricing_date = pricing_date
         self.end_date = end_date
-        self.percentiles = [p.value for p in percentiles]
+        self.ccy_under = ccy_under
+        self.ccy_over = ccy_over
+        self.ccy_payout = ccy_payout or ccy_over
         self.freq = freq
         self.csa_term = csa_term
         self.market_data_location = market_data_location
+        self.percentiles = percentiles
         self.precision = precision
-        self.ds = DatasetProvider('FXFORWARD')
 
-    @cached_val
-    def process(self) -> pd.DataFrame:
-        pricing_date = get_date_from_relative_date(self.pricing_date)
-        end_date = get_date_from_relative_date(self.end_date)
+    def calculate_spot(self):
+        fwd = tdapi.FXForwardBuilder(over=self.ccy_over, under=self.ccy_under, expirysettledate='0b')
+        with PricingContext(pricing_date=self.pricing_date, csa_term=self.csa_term, market_data_location=self.market_data_location):
+            fwd.resolve(in_place=True)
+        return fwd.strike
 
-        # Query the dataset
-        mq_df = self.ds.query(
-            bbid=self.cross.name, 
-            start=pricing_date, 
-            end=end_date, 
-            freq=self.freq, 
-            location=self.market_data_location
-        )
-        if mq_df.empty:
-            raise MqValueError(f"No data returned for {self.cross.name} in {self.ds.id} dataset")
+    def risk_cone(self) -> pd.DataFrame:
+        spot_current = self.calculate_spot()
+        date_range = pd.bdate_range(self.pricing_date, self.end_date, freq=self.freq).date.tolist()
+        if date_range[0] == self.pricing_date:
+            date_range = date_range[1:]
+        if date_range[-1] != self.end_date:
+            date_range.append(self.end_date)
 
-        # Spot and forward calculations
-        mq_df['Forward Curve'] = mq_df['forwardPoints'] + mq_df['spot']
-        mq_df['Current Spot'] = mq_df['spot'][0]
+        binaries = Portfolio([
+            Portfolio([tdapi.FXBinaryBuilder(
+                over=self.ccy_over, under=self.ccy_under, payoutunit=self.ccy_payout,
+                expiry=t, strike='p={}'.format(p if p <= 0.50 else 1-p),
+                optiontype='Put' if p <= 0.50 else 'Call', premiumsettledate='0b', premium=0) 
+                for p in self.percentiles]) 
+            for t in date_range])
 
-        # Process binaries for percentiles
-        percentiles_labels = [f"{int(100 * p)}th Percentile" for p in self.percentiles]
-        mq_df[percentiles_labels] = mq_df.apply(
-            lambda row: [-100 * np.log(row['Forward Curve'] / row['spot']) * p for p in self.percentiles],
-            axis=1, result_type='expand'
-        )
+        forwards = Portfolio([tdapi.FXForwardBuilder(over=self.ccy_over, under=self.ccy_under, expirysettledate=t) for t in date_range])
 
-        mq_df.reset_index(inplace=True)
-        mq_df = mq_df[['Date'] + percentiles_labels + ['Forward Curve', 'Current Spot']]
-        return mq_df.set_index('Date').round(self.precision)
+        with PricingContext(pricing_date=self.pricing_date, csa_term=self.csa_term, market_data_location=self.market_data_location):
+            binaries.resolve(in_place=True)
+            forwards.resolve(in_place=True)
+
+        labels = [f'{int(100 * p)}th Percentile' for p in self.percentiles]
+        df = pd.DataFrame([(i.strike for i in p.priceables) for p in binaries.priceables], columns=labels, index=date_range)
+        df['Forward Curve'] = [i.strike for i in forwards.priceables]
+        df['Current Spot'] = [spot_current for x in df.index]
+
+        df = pd.concat([pd.DataFrame({col: spot_current for col in df.columns}, index=[self.pricing_date]), df], axis=0)
+        df.sort_index(inplace=True)
+        return df.round(self.precision)
+
 
 # COMPONENT
-from abc_quant_analytics.dataviz.plotly.plotlyviz import PlotlyViz
-from abc_quant_analytics.dataviz.figures.go_line import GoLine
-from abc_quant_analytics.interfaces.analytics_component_interface import AnalyticsComponent, MetaDataKeys
-from abc_quant_analytics.visualization_params import VisualizationParameters
-from abc_quant.timeseries import SecurityMaster, AssetIdentifier
-from abc_quant.utils.date.date_utils import get_date_from_relative_date
-
 class RiskConeComponent(AnalyticsComponent):
-    def __init__(self, 
-                 cross: Asset = None,
-                 pricing_date: Union[dt.date, RelativeDate] = RelativeDate('-1b'),
-                 end_date: Union[dt.date, RelativeDate] = RelativeDate('+1y'),
-                 freq: str = 'W-FRI',
-                 highlight_dates: Dict[str, dt.date] = None,
-                 percentiles: List[Percentiles] = [Percentiles.P95, Percentiles.P05, Percentiles.P90, Percentiles.P10]):
-        
+    def __init__(self, engine: RiskConeEngine, highlight_dates: Dict[str, date] = None):
         super().__init__()
-        self.cross = cross or self.get_default_params()['cross']
-        self.pricing_date = pricing_date
-        self.end_date = end_date
-        self.freq = freq
+        self.engine = engine
         self.highlight_dates = highlight_dates or {}
-        self.percentiles = percentiles
-        self.engine = RiskConeEngine(
-            cross=self.cross,
-            pricing_date=self.pricing_date,
-            end_date=self.end_date,
-            percentiles=self.percentiles,
-            freq=self.freq
-        )
 
-    def get_visualization(self) -> PlotlyViz:
-        df = self.engine.process()
-        viz = PlotlyViz(name='Risk Cone Plot')
+    def get_visualization(self) -> go.Figure:
+        df = self.engine.risk_cone()
+        fig = go.Figure()
 
-        # Forward curve line
-        line = GoLine(x=df.index, y=df['Forward Curve'], name='Forward Curve', line=dict(color='#00355F', width=2))
-        viz.add_trace(line)
+        # Plot forward curve
+        fig.add_trace(go.Scatter(x=df.index, y=df['Forward Curve'], mode='lines', name='Forward Curve',
+                                 line=dict(color=abc_color('darkblue'))))
 
-        # Plot percentiles with dynamic colors
+        # Plot percentiles
         colors = ['#FF0000', '#00FF00', '#FFA500', '#00FFFF']
-        for i, percentile in enumerate(df.columns[:-2]):  # Excluding 'Forward Curve' and 'Current Spot'
-            line = GoLine(x=df.index, y=df[percentile], name=percentile,
-                          line=dict(color=colors[i % len(colors)], dash='dash'))
-            viz.add_trace(line)
+        for i, col in enumerate(df.columns[:-2]):  # excluding 'Forward Curve' and 'Current Spot'
+            fig.add_trace(go.Scatter(x=df.index, y=df[col], mode='lines', name=col,
+                                     line=dict(color=colors[i % len(colors)], dash='dash')))
 
-        # Highlight dates with labels
+        # Add vertical lines for highlights
         for label, dh in self.highlight_dates.items():
-            viz.add_vline(x=dh, line=dict(color='black', dash='dash'), annotation_text=label, annotation_position="top left")
+            fig.add_vline(x=dh, line=dict(color='black', dash='dash'))
+            fig.add_annotation(x=dh, y=df['Forward Curve'].max() * 1.05, text=label,
+                               showarrow=False, xshift=-15, yshift=10)
 
-        # Formatting the layout
-        font_settings = dict(family='Arial', size=12)
-        viz.update_layout(
-            title=dict(text=f"Risk Cone for {self.cross.name}", font=font_settings),
-            font=font_settings,
+        # Layout settings
+        fig.update_layout(
+            title=dict(text=f"Risk Cone for {self.engine.ccy_over}/{self.engine.ccy_under}", x=0.5),
+            xaxis_title="Date",
+            yaxis_title="Spot",
+            legend=dict(yanchor="top", xanchor="center", x=0.5, y=-0.3),
             yaxis_range=[df.min().min() * 0.9, df.max().max() * 1.1]
         )
-        return viz
+        return fig
 
-    @staticmethod
-    def get_default_params() -> Dict[str, object]:
-        return {'cross': SecurityMaster.get_asset('EURUSD', AssetIdentifier.BLOOMBERG_ID)}
 
-    def get_visualization_parameters(self) -> VisualizationParameters:
-        return VisualizationParameters(show_legend=True, precision=self.engine.precision)
-
-    @property
-    def metadata(self) -> Dict[str, str]:
-        pricing_date_str = get_date_from_relative_date(self.pricing_date).strftime('%d%b%Y')
-        end_date_str = get_date_from_relative_date(self.end_date).strftime('%d%b%Y')
-        title = f"Risk Cone from {pricing_date_str} to {end_date_str} for {self.cross.name}"
-        return {MetaDataKeys.Title: title}
-
-# INITIALIZE
-from abc_quant.session import AbcSession
-AbcSession.use()
-
+# INITIALIZE AND RUN
+pricing_date = business_day_offset(date.today(), -1, roll='forward')
+end_date = business_day_offset(pricing_date + relativedelta(years=1), -1, roll='forward')
 highlight_dates = {
-    '3m': get_date_from_relative_date(RelativeDate('+3m')).apply_rule(),
-    '6m': get_date_from_relative_date(RelativeDate('+6m')).apply_rule(),
-    '1y': get_date_from_relative_date(RelativeDate('+1y')).apply_rule()
+    '3m': business_day_offset(pricing_date + relativedelta(months=3), -1, roll='forward'),
+    '6m': business_day_offset(pricing_date + relativedelta(months=6), -1, roll='forward'),
+    '1y': end_date
 }
 
-RiskConeComponent(
-    cross=SecurityMaster.get_asset('EURUSD', AssetIdentifier.BLOOMBERG_ID),
-    pricing_date=RelativeDate('-1b'),
-    end_date=RelativeDate('+1y'),
-    highlight_dates=highlight_dates,
-    percentiles=[Percentiles.P95, Percentiles.P05, Percentiles.P90, Percentiles.P10]
-).show()
+# Instantiate engine and component
+engine = RiskConeEngine(pricing_date=pricing_date, end_date=end_date, ccy_under='EUR', ccy_over='USD', freq='W-FRI')
+component = RiskConeComponent(engine=engine, highlight_dates=highlight_dates)
+
+# Plot
+fig = component.get_visualization()
+fig.show()
