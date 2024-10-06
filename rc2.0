@@ -189,12 +189,17 @@ from abc_quant.session import AbcSession
 from abc_quant.markets.securities import SecurityMaster, AssetIdentifier
 AbcSession.use()
 
+# Calculate dates using relativedelta before passing to business_day_offset
+highlight_dates = {
+    '3m': business_day_offset(dt.date.today() + relativedelta(months=3), -1, roll='forward'),
+    '6m': business_day_offset(dt.date.today() + relativedelta(months=6), -1, roll='forward'),
+    '1y': business_day_offset(dt.date.today() + relativedelta(years=1), -1, roll='forward')
+}
+
 RiskConeComponent(
     cross=SecurityMaster.get_asset('EURUSD', AssetIdentifier.BLOOMBERG_ID),
     percentiles=[Percentiles.P95, Percentiles.P05, Percentiles.P90, Percentiles.P10],
     pricing_date=RelativeDate('-1b'),
     end_date=RelativeDate('+1y'),
-    highlight_dates={'3m': business_day_offset(dt.date.today(), relativedelta(months=3), roll='forward'),
-                     '6m': business_day_offset(dt.date.today(), relativedelta(months=6), roll='forward'),
-                     '1y': business_day_offset(dt.date.today(), relativedelta(years=1), roll='forward')}
+    highlight_dates=highlight_dates
 ).show()
