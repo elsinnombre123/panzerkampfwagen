@@ -116,7 +116,12 @@ class RiskConeComponent(AnalyticsComponent):
                  end_date: Union[dt.date, RelativeDate] = RelativeDate('+1y'),
                  freq: str = 'W-FRI',
                  highlight_dates: Dict[str, dt.date] = None):
+        # Initialize the engine first to avoid the attribute error
+        self.engine = RiskConeEngine(ccy_under=ccy_under, ccy_over=ccy_over, 
+                                     ccy_payout=ccy_payout or ccy_over, pricing_date=pricing_date,
+                                     end_date=end_date, percentiles=percentiles)
         super().__init__()
+
         self.cross = cross or self.get_default_params()['cross']
         self.ccy_under = ccy_under
         self.ccy_over = ccy_over
@@ -126,10 +131,6 @@ class RiskConeComponent(AnalyticsComponent):
         self.percentiles = percentiles
         self.freq = freq
         self.highlight_dates = highlight_dates or {}
-        # Properly initialize the engine instance here
-        self.engine = RiskConeEngine(ccy_under=self.ccy_under, ccy_over=self.ccy_over, 
-                                     ccy_payout=self.ccy_payout, pricing_date=self.pricing_date,
-                                     end_date=self.end_date, percentiles=self.percentiles)
 
     def get_visualization(self) -> PlotlyViz:
         df = self.engine.process()
