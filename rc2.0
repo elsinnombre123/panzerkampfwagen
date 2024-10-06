@@ -126,6 +126,7 @@ class RiskConeComponent(AnalyticsComponent):
         self.percentiles = percentiles
         self.freq = freq
         self.highlight_dates = highlight_dates or {}
+        # Properly initialize the engine instance here
         self.engine = RiskConeEngine(ccy_under=self.ccy_under, ccy_over=self.ccy_over, 
                                      ccy_payout=self.ccy_payout, pricing_date=self.pricing_date,
                                      end_date=self.end_date, percentiles=self.percentiles)
