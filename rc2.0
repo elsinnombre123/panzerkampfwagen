@@ -87,6 +87,10 @@ class RiskConeEngine(AnalyticsEngine):
         df.sort_index(inplace=True)
         return df.round(self.precision)
 
+    # Add process method to meet the abstract requirement
+    def process(self) -> pd.DataFrame:
+        return self.risk_cone()
+
 # COMPONENT
 class RiskConeComponent(AnalyticsComponent):
     def __init__(self, engine: RiskConeEngine, highlight_dates: Dict[str, date] = None):
@@ -95,7 +99,7 @@ class RiskConeComponent(AnalyticsComponent):
         self.highlight_dates = highlight_dates or {}
 
     def get_visualization(self) -> go.Figure:
-        df = self.engine.risk_cone()
+        df = self.engine.process()  # Call process to get risk cone data
         fig = go.Figure()
 
         # Plot forward curve
