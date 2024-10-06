@@ -155,9 +155,14 @@ class RiskConeComponent(AnalyticsComponent):
                           line=dict(color=colors[i], dash='dash'), mode='lines')
             viz.add_trace(line)
 
-        # Add vertical lines for highlights
+        # Add vertical lines for highlights with proper label formatting
         for label, date in self.highlight_dates.items():
-            viz.add_vline(date, label=label)
+            viz.add_vline(
+                x=date,
+                line=dict(color='black', dash='dash'),
+                annotation_text=label,  # Proper annotation format
+                annotation_position="top left"
+            )
 
         viz.update_layout(title=dict(text=self.metadata[MetaDataKeys.Title], font=dict(family="Arial", size=12)))
         return viz
