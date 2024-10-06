@@ -128,6 +128,13 @@ class RiskConeComponent(AnalyticsComponent):
         )
         return fig
 
+    @staticmethod
+    def get_default_params() -> Dict[str, object]:
+        return {'cross': 'EURUSD'}  # Replace with appropriate default parameters
+
+    def get_visualization_parameters(self) -> VisualizationParameters:
+        return VisualizationParameters(show_legend=True, precision=2)
+
     @property
     def metadata(self) -> Dict[str, str]:
         return {MetaDataKeys.Title: f"Risk Cone for {self.engine.ccy_over}/{self.engine.ccy_under}"}
