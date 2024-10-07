@@ -106,51 +106,56 @@ class RiskConeComponent(AnalyticsComponent):
         self.highlight_dates = highlight_dates or {}
 
     def get_visualization(self) -> go.Figure:
-    df = self.engine.risk_cone()
-    fig = go.Figure()
+        df = self.engine.process()  # Call process to get risk cone data
+        spot_current = df['Current Spot'].iloc[0]  # Assuming spot_current is the first value in 'Current Spot' column
+        
+        # Fetch historical spot data
+        hist_spot_df = self.engine.historical_spot(self.engine.pricing_date - relativedelta(years=1), self.engine.pricing_date)
 
-    # Plot forward curve
-    fig.add_trace(go.Scatter(x=df.index, y=df['Forward Curve'], mode='lines', name='Forward Curve',
-                             line=dict(color=abc_color('darkblue'))))
+        fig = go.Figure()
 
-    # Plot historical spot
-    hist_spot_df = self.engine.historical_spot()
-    fig.add_trace(go.Scatter(x=hist_spot_df.index, y=hist_spot_df['Historical Spot'], mode='lines',
-                             name='Historical Spot', line=dict(color=abc_color('blue')), connectgaps=True))
+        # Plot historical spot line
+        fig.add_trace(go.Scatter(x=hist_spot_df.index, y=hist_spot_df['Historical Spot'], mode='lines', 
+                                 name='Historical Spot', line=dict(color=abc_color('darkblue')), connectgaps=True))
 
-    # Plot percentiles
-    colors = ['#FF0000', '#00FF00', '#FFA500', '#00FFFF']
-    for i, col in enumerate(self.engine.labels_percentile):
-        fig.add_trace(go.Scatter(x=df.index, y=df[col], mode='lines', name=col,
-                                 line=dict(color=colors[i % len(colors)], dash='dash')))
+        # Plot forward curve
+        fig.add_trace(go.Scatter(x=df.index, y=df['Forward Curve'], mode='lines', name='Forward Curve',
+                                 line=dict(color=abc_color('blue'))))
 
-        # Add annotation for each percentile at the end
+        # Plot percentiles
+        colors = ['#FF0000', '#00FF00', '#FFA500', '#00FFFF']
+        for i, col in enumerate(df.columns[:-2]):  # excluding 'Forward Curve' and 'Current Spot'
+            fig.add_trace(go.Scatter(x=df.index, y=df[col], mode='lines', name=col,
+                                     line=dict(color=colors[i % len(colors)], dash='dash')))
+            # Add annotation for each percentile at the end
+            fig.add_annotation(x=df.index[-1] + pd.Timedelta(days=3),
+                               y=df[col].iloc[-1],
+                               text=f'{df[col].iloc[-1]:.2f}',
+                               showarrow=True, arrowhead=2, ax=20, ay=0)
+
+        # Add annotation for Forward Curve
         fig.add_annotation(x=df.index[-1] + pd.Timedelta(days=3),
-                           y=df[col].iloc[-1],
-                           text=f'{df[col].iloc[-1]:.2f}',
-                           showarrow=True, arrowhead=2, ax=20, ay=0)
+                           y=df['Forward Curve'].iloc[-1],
+                           text=f'{df["Forward Curve"].iloc[-1]:.2f}',
+                           showarrow=True, arrowhead=1, ax=20, ay=0)
 
-    # Add annotation for Forward Curve
-    fig.add_annotation(x=df.index[-1] + pd.Timedelta(days=3),
-                       y=df['Forward Curve'].iloc[-1],
-                       text=f'{df["Forward Curve"].iloc[-1]:.2f}',
-                       showarrow=True, arrowhead=1, ax=20, ay=0)
+        # Add vertical lines for highlights
+        for label, dh in self.highlight_dates.items():
+            fig.add_vline(x=dh, line=dict(color='black', dash='dash'))
+            fig.add_annotation(x=dh, y=df['Forward Curve'].max() * 1.05, text=label,
+                               showarrow=False, xshift=-15, yshift=10)
 
-    # Add vertical lines for highlights
-    for label, dh in self.highlight_dates.items():
-        fig.add_vline(x=dh, line=dict(color='black', dash='dash'))
-        fig.add_annotation(x=dh, y=df['Forward Curve'].max() * 1.05, text=label,
-                           showarrow=False, xshift=-15, yshift=10)
-
-    # Layout settings
-    fig.update_layout(
-        title=dict(text=f"Risk Cone for {self.engine.ccy_over}/{self.engine.ccy_under}", x=0.5),
-        xaxis_title="Date",
-        yaxis_title="Spot",
-        legend=dict(yanchor="top", xanchor="center", x=0.5, y=-0.3),
-        yaxis_range=[df.min().min() * 0.9, df.max().max() * 1.1]
-    )
-    return fig
+        # Layout settings
+        fig.update_layout(
+            title=dict(text=f"Risk Cone for {self.engine.ccy_over}/{self.engine.ccy_under}", x=0.5),
+            xaxis_title="Date",
+            yaxis_title="Spot",
+            legend=dict(yanchor="top", xanchor="center", x=0.5, y=-0.3),
+            yaxis_range=[df.min().min() * 0.9, df.max().max() * 1.1],
+            width=900,  # Adjust width
+            height=600  # Adjust height
+        )
+        return fig
 
     @staticmethod
     def get_default_params() -> Dict[str, object]:
