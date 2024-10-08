@@ -139,8 +139,8 @@ class RiskConeComponent(AnalyticsComponent):
 
     def parse_highlight_dates(self, highlight_periods: List[str], base_date: date) -> Dict[str, date]:
         period_mapping = {
-            'm': lambda n: business_day_offset(base_date + relativedelta(months=n), -1, roll='forward'),
-            'y': lambda n: business_day_offset(base_date + relativedelta(years=n), -1, roll='forward')
+            'm': lambda n: business_day_offset(base_date + relativedelta(months=n), 0, roll='forward'),
+            'y': lambda n: business_day_offset(base_date + relativedelta(years=n), 0, roll='forward')
         }
         dates = {}
         for period in highlight_periods or []:
@@ -148,6 +148,7 @@ class RiskConeComponent(AnalyticsComponent):
             if unit in period_mapping:
                 dates[period] = period_mapping[unit](num)
         return dates
+
 
     def get_visualization(self) -> go.Figure:
         df = self.engine.process()
