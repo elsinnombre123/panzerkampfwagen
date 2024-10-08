@@ -51,6 +51,7 @@ class RiskConeEngine(AnalyticsEngine):
         self.date_range = self.generate_date_range()
 
     def generate_date_range(self):
+        # Use pd.bdate_range to handle business days
         date_range = pd.bdate_range(self.pricing_date, self.end_date, freq=self.freq).date.tolist()
         if date_range[0] == self.pricing_date:
             date_range = date_range[1:]
@@ -65,7 +66,6 @@ class RiskConeEngine(AnalyticsEngine):
         return fwd.strike
 
     def historical_spot(self, start_date, end_date):
-        # Fetch historical spot data
         fwd = tdapi.FXForwardBuilder(over=self.ccy_over, under=self.ccy_under, expirysettledate='0b')
         with HistoricalPricingContext(start=start_date, end=end_date, csa_term=self.csa_term, market_data_location=self.market_data_location):
             fwd.resolve(in_place=False)
