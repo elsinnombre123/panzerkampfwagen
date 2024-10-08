@@ -9,7 +9,7 @@ from datetime import date
 from dateutil.relativedelta import relativedelta
 import pandas as pd
 import plotly.graph_objs as go
-from typing import List, Dict, Union
+from typing import List, Dict
 from abc_quant_analytics.interfaces.analytics_engine_interface import AnalyticsEngine
 from abc_quant_analytics.interfaces.analytics_component_interface import AnalyticsComponent, MetaDataKeys
 from abc_quant_analytics.visualization_params import VisualizationParameters
@@ -51,7 +51,7 @@ class RiskConeEngine(AnalyticsEngine):
         self.date_range = self.generate_date_range()
 
     def generate_date_range(self):
-        # Use pd.bdate_range to handle business days
+        # Generate business days within the specified date range
         date_range = pd.bdate_range(self.pricing_date, self.end_date, freq=self.freq).date.tolist()
         if date_range[0] == self.pricing_date:
             date_range = date_range[1:]
@@ -70,7 +70,7 @@ class RiskConeEngine(AnalyticsEngine):
         with HistoricalPricingContext(start=start_date, end=end_date, csa_term=self.csa_term, market_data_location=self.market_data_location):
             fwd.resolve(in_place=False)
             risks = fwd.calc(valuation('FXSpot'))
-        return pd.DataFrame(risks.result(), columns=['Historical Spot'], index=pd.date_range(start=start_date, end=end_date))
+        return pd.DataFrame(risks.result(), columns=['Historical Spot'], index=pd.bdate_range(start=start_date, end=end_date))
 
     def risk_cone(self) -> pd.DataFrame:
         spot_current = self.calculate_spot()
@@ -101,26 +101,13 @@ class RiskConeEngine(AnalyticsEngine):
 # COMPONENT
 class RiskConeComponent(AnalyticsComponent):
     def __init__(self, 
-                 pricing_date: date,
-                 end_date: date,
-                 ccy_under: str = 'EUR',
-                 ccy_over: str = 'USD',
-                 highlight_dates: Dict[str, date] = None,
-                 show_histspot: bool = True,
+                 engine: RiskConeEngine, 
+                 highlight_dates: Dict[str, date] = None, 
+                 show_histspot: bool = True, 
                  percentiles: List[float] = [0.95, 0.05, 0.90, 0.10], 
                  percentile_colors: List[str] = None):
         super().__init__()
-        
-        # Initialize the engine with pricing_date and end_date
-        self.engine = RiskConeEngine(
-            pricing_date=pricing_date, 
-            end_date=end_date, 
-            ccy_under=ccy_under, 
-            ccy_over=ccy_over, 
-            percentiles=percentiles
-        )
-        
-        # Highlight dates passed as dictionary
+        self.engine = engine
         self.highlight_dates = highlight_dates or {}
         self.show_histspot = show_histspot
         self.percentiles = percentiles
@@ -194,10 +181,12 @@ highlight_dates = {
 }
 
 component = RiskConeComponent(
-    pricing_date=pricing_date,
-    end_date=end_date,
-    ccy_under='EUR',
-    ccy_over='USD',
+    engine=RiskConeEngine(
+        pricing_date=pricing_date,
+        end_date=end_date,
+        ccy_under='EUR',
+        ccy_over='USD'
+    ),
     highlight_dates=highlight_dates,
     show_histspot=True,
     percentiles=[0.95, 0.05, 0.90, 0.10],
