@@ -52,13 +52,17 @@ class RiskConeEngine(AnalyticsEngine):
         self.date_range = self.generate_date_range()
 
     def generate_date_range(self):
-        # Adjust date range using business_day_offset for weekly frequency to include only business days
-        date_range = pd.date_range(self.pricing_date, self.end_date, freq=self.freq).to_list()
-        date_range = [business_day_offset(d, 0) for d in date_range]  # Ensure each date is a business day
+        # Generate date range using bdate_range to ensure only business days are included
+        date_range = pd.bdate_range(self.pricing_date, self.end_date, freq=self.freq).tolist()
+        
+        # Remove first date if it matches the pricing date (as per Script 1 behavior)
         if date_range[0] == self.pricing_date:
             date_range = date_range[1:]
+        
+        # Add end_date if not included in date_range
         if date_range[-1] != self.end_date:
             date_range.append(self.end_date)
+
         return date_range
 
     def calculate_spot(self):
