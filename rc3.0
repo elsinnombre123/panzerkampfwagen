@@ -4,7 +4,6 @@ from abc_quant_internal.boltweb import valuation
 from abc_quant.risk import MarketDataPattern, MarketDataShock, MarketDataShockType, MarketDataShockBasedScenario
 from abc_quant.markets import PricingContext, HistoricalPricingContext
 from abc_quant.markets.portfolio import Portfolio
-from abc_quant.datetime import business_day_offset
 from datetime import date
 from dateutil.relativedelta import relativedelta
 import pandas as pd
@@ -37,8 +36,8 @@ class RiskConeEngine(AnalyticsEngine):
                  market_data_location: str = 'NYC', percentiles: List[float] = [0.95, 0.05, 0.90, 0.10], 
                  precision: int = 4):
         super().__init__()
-        self.pricing_date = pricing_date
-        self.end_date = end_date
+        self.pricing_date = pd.bdate_range(end=pricing_date, periods=1)[0].date()
+        self.end_date = pd.bdate_range(end=end_date, periods=1)[0].date()
         self.ccy_under = ccy_under
         self.ccy_over = ccy_over
         self.ccy_payout = ccy_payout or ccy_over
@@ -51,7 +50,6 @@ class RiskConeEngine(AnalyticsEngine):
         self.date_range = self.generate_date_range()
 
     def generate_date_range(self):
-        # Generate business days within the specified date range
         date_range = pd.bdate_range(self.pricing_date, self.end_date, freq=self.freq).date.tolist()
         if date_range[0] == self.pricing_date:
             date_range = date_range[1:]
@@ -113,14 +111,12 @@ class RiskConeComponent(AnalyticsComponent):
         self.percentiles = percentiles
         self.percentile_colors = percentile_colors or ['#FF0000', '#00FF00', '#FFA500', '#00FFFF']
         
-        # Extend default colors if fewer colors than percentiles are provided
         while len(self.percentile_colors) < len(self.percentiles):
             self.percentile_colors.extend(['#FF0000', '#00FF00', '#FFA500', '#00FFFF'])
 
     def get_visualization(self) -> go.Figure:
         df = self.engine.process()
         
-        # Fetch historical spot data if show_histspot is True
         hist_spot_df = self.engine.historical_spot(
             self.engine.pricing_date - relativedelta(years=1), 
             self.engine.pricing_date
@@ -128,27 +124,22 @@ class RiskConeComponent(AnalyticsComponent):
 
         fig = go.Figure()
 
-        # Plot historical spot line if required
         if self.show_histspot and hist_spot_df is not None:
             fig.add_trace(go.Scatter(x=hist_spot_df.index, y=hist_spot_df['Historical Spot'], mode='lines', 
                                      name='Historical Spot', line=dict(color=abc_color('darkblue'))))
 
-        # Plot forward curve
         fig.add_trace(go.Scatter(x=df.index, y=df['Forward Curve'], mode='lines', name='Forward Curve',
                                  line=dict(color=abc_color('blue'))))
 
-        # Plot percentiles
         for i, (col, color) in enumerate(zip(df.columns[:-2], self.percentile_colors[:len(self.percentiles)])):
             fig.add_trace(go.Scatter(x=df.index, y=df[col], mode='lines', name=col,
                                      line=dict(color=color, dash='dash')))
 
-        # Add vertical lines for highlights
         for label, dh in self.highlight_dates.items():
             fig.add_vline(x=dh, line=dict(color='black', dash='dash'))
             fig.add_annotation(x=dh, y=df['Forward Curve'].max() * 1.05, text=label,
                                showarrow=False, xshift=-15, yshift=10)
 
-        # Layout settings
         fig.update_layout(
             title=dict(text=f"Risk Cone for {self.engine.ccy_over}/{self.engine.ccy_under}", x=0.5),
             xaxis_title="Date",
@@ -172,11 +163,11 @@ class RiskConeComponent(AnalyticsComponent):
         return {MetaDataKeys.Title: f"Risk Cone for {self.engine.ccy_over}/{self.engine.ccy_under}"}
 
 # Example usage
-pricing_date = business_day_offset(date.today(), -1, roll='forward')
-end_date = business_day_offset(pricing_date + relativedelta(years=1), -1, roll='forward')
+pricing_date = pd.bdate_range(end=date.today(), periods=1)[0].date()
+end_date = pd.bdate_range(end=pricing_date + relativedelta(years=1), periods=1)[0].date()
 highlight_dates = {
-    '3m': business_day_offset(pricing_date + relativedelta(months=3), -1, roll='forward'),
-    '6m': business_day_offset(pricing_date + relativedelta(months=6), -1, roll='forward'),
+    '3m': pd.bdate_range(end=pricing_date + relativedelta(months=3), periods=1)[0].date(),
+    '6m': pd.bdate_range(end=pricing_date + relativedelta(months=6), periods=1)[0].date(),
     '1y': end_date
 }
 
