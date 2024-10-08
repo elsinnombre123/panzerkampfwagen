@@ -9,6 +9,7 @@ from dateutil.relativedelta import relativedelta
 import pandas as pd
 import plotly.graph_objs as go
 from typing import List, Dict
+from abc_quant.datetime import business_day_offset
 from abc_quant_analytics.interfaces.analytics_engine_interface import AnalyticsEngine
 from abc_quant_analytics.interfaces.analytics_component_interface import AnalyticsComponent, MetaDataKeys
 from abc_quant_analytics.visualization_params import VisualizationParameters
@@ -36,8 +37,9 @@ class RiskConeEngine(AnalyticsEngine):
                  market_data_location: str = 'NYC', percentiles: List[float] = [0.95, 0.05, 0.90, 0.10], 
                  precision: int = 4):
         super().__init__()
-        self.pricing_date = pd.bdate_range(end=pricing_date, periods=1)[0].date()
-        self.end_date = pd.bdate_range(end=end_date, periods=1)[0].date()
+        # Use business_day_offset directly to align with original structure
+        self.pricing_date = business_day_offset(pricing_date, -1, roll='forward')
+        self.end_date = business_day_offset(end_date, -1, roll='forward')
         self.ccy_under = ccy_under
         self.ccy_over = ccy_over
         self.ccy_payout = ccy_payout or ccy_over
@@ -50,7 +52,9 @@ class RiskConeEngine(AnalyticsEngine):
         self.date_range = self.generate_date_range()
 
     def generate_date_range(self):
-        date_range = pd.bdate_range(self.pricing_date, self.end_date, freq=self.freq).date.tolist()
+        # Adjust date range using business_day_offset for weekly frequency to include only business days
+        date_range = pd.date_range(self.pricing_date, self.end_date, freq=self.freq).to_list()
+        date_range = [business_day_offset(d, 0) for d in date_range]  # Ensure each date is a business day
         if date_range[0] == self.pricing_date:
             date_range = date_range[1:]
         if date_range[-1] != self.end_date:
@@ -64,6 +68,10 @@ class RiskConeEngine(AnalyticsEngine):
         return fwd.strike
 
     def historical_spot(self, start_date, end_date):
+        # Ensure start_date and end_date align with business days
+        start_date = business_day_offset(start_date, 0, roll='forward')
+        end_date = business_day_offset(end_date, 0, roll='forward')
+        
         fwd = tdapi.FXForwardBuilder(over=self.ccy_over, under=self.ccy_under, expirysettledate='0b')
         with HistoricalPricingContext(start=start_date, end=end_date, csa_term=self.csa_term, market_data_location=self.market_data_location):
             fwd.resolve(in_place=False)
@@ -163,11 +171,11 @@ class RiskConeComponent(AnalyticsComponent):
         return {MetaDataKeys.Title: f"Risk Cone for {self.engine.ccy_over}/{self.engine.ccy_under}"}
 
 # Example usage
-pricing_date = pd.bdate_range(end=date.today(), periods=1)[0].date()
-end_date = pd.bdate_range(end=pricing_date + relativedelta(years=1), periods=1)[0].date()
+pricing_date = business_day_offset(date.today(), -1, roll='forward')
+end_date = business_day_offset(pricing_date + relativedelta(years=1), -1, roll='forward')
 highlight_dates = {
-    '3m': pd.bdate_range(end=pricing_date + relativedelta(months=3), periods=1)[0].date(),
-    '6m': pd.bdate_range(end=pricing_date + relativedelta(months=6), periods=1)[0].date(),
+    '3m': business_day_offset(pricing_date + relativedelta(months=3), -1, roll='forward'),
+    '6m': business_day_offset(pricing_date + relativedelta(months=6), -1, roll='forward'),
     '1y': end_date
 }
 
