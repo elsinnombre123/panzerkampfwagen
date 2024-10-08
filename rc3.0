@@ -32,16 +32,9 @@ def abc_color(c):
 
 # ENGINE
 class RiskConeEngine(AnalyticsEngine):
-    def __init__(self, 
-                 pricing_date: date, 
-                 end_date: date, 
-                 ccy_under: str, 
-                 ccy_over: str, 
-                 ccy_payout: str = None, 
-                 freq: str = 'W-FRI', 
-                 csa_term: str = 'USD-1', 
-                 market_data_location: str = 'NYC', 
-                 percentiles: List[float] = [0.95, 0.05, 0.90, 0.10], 
+    def __init__(self, pricing_date: date, end_date: date, ccy_under: str, ccy_over: str, 
+                 ccy_payout: str = None, freq: str = 'W-FRI', csa_term: str = 'USD-1', 
+                 market_data_location: str = 'NYC', percentiles: List[float] = [0.95, 0.05, 0.90, 0.10], 
                  precision: int = 4):
         super().__init__()
         self.pricing_date = pricing_date
@@ -175,10 +168,21 @@ class RiskConeComponent(AnalyticsComponent):
             yaxis_title="Spot",
             legend=dict(yanchor="top", xanchor="center", x=0.5, y=-0.3),
             yaxis_range=[df.min().min() * 0.9, df.max().max() * 1.1],
-            width=900,  # Adjust width
-            height=600  # Adjust height
+            width=900,
+            height=600
         )
         return fig
+
+    @staticmethod
+    def get_default_params() -> Dict[str, object]:
+        return {'cross': 'EURUSD'}
+
+    def get_visualization_parameters(self) -> VisualizationParameters:
+        return VisualizationParameters(show_legend=True, precision=2)
+
+    @property
+    def metadata(self) -> Dict[str, str]:
+        return {MetaDataKeys.Title: f"Risk Cone for {self.engine.ccy_over}/{self.engine.ccy_under}"}
 
 # Example usage
 pricing_date = business_day_offset(date.today(), -1, roll='forward')
