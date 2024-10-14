@@ -16,15 +16,6 @@ from abc_quant_analytics.visualization_params import VisualizationParameters
 
 # ENGINE
 class RiskConeEngine(AnalyticsEngine):
-    # Valid periods for tenor and end_date
-    VALID_PERIODS = {
-        '3m': relativedelta(months=3),
-        '6m': relativedelta(months=6),
-        '9m': relativedelta(months=9),
-        '1y': relativedelta(years=1),
-        '2y': relativedelta(years=2)
-    }
-    
     def __init__(self, 
                  pricing_date: Optional[date] = None, 
                  end_date: str = '1y', 
@@ -56,6 +47,15 @@ class RiskConeEngine(AnalyticsEngine):
         
         # Calculate highlight dates based on the tenor values provided
         self.highlight_dates = self.generate_highlight_dates(tenor)
+
+    # Valid periods for tenor and end_date
+    VALID_PERIODS = {
+        '3m': relativedelta(months=3),
+        '6m': relativedelta(months=6),
+        '9m': relativedelta(months=9),
+        '1y': relativedelta(years=1),
+        '2y': relativedelta(years=2)
+    }
 
     def calculate_end_date(self, end_date: str, tenor: Optional[List[str]]) -> date:
         # Verify end_date is valid
