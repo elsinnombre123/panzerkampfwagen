@@ -62,9 +62,9 @@ class RiskConeEngine(AnalyticsEngine):
         if end_date not in self.VALID_PERIODS:
             raise ValueError(f"Invalid end_date '{end_date}'. Allowed values: {list(self.VALID_PERIODS.keys())}")
 
-        # Find the maximum tenor duration
+        # Find the maximum tenor duration by checking order in VALID_PERIODS
         if tenor:
-            max_tenor = max(tenor, key=lambda t: list(self.VALID_PERIODS.keys()).index(t))
+            max_tenor = sorted(tenor, key=lambda t: list(self.VALID_PERIODS.keys()).index(t))[-1]
             if list(self.VALID_PERIODS.keys()).index(end_date) < list(self.VALID_PERIODS.keys()).index(max_tenor):
                 raise ValueError(f"end_date '{end_date}' must be equal to or greater than the maximum tenor '{max_tenor}'.")
 
@@ -245,7 +245,9 @@ class RiskConeComponent(AnalyticsComponent):
             legend=dict(yanchor="top", xanchor="center", x=0.5, y=-0.15, orientation='h'),
             yaxis_range=[df.min().min() * 0.95, df.max().max() * 1.05],
             width=1000,
-            height=600
+            height=600,
+            xaxis_showgrid=False,  # Disable x-axis gridlines
+            yaxis_showgrid=False   # Disable y-axis gridlines
         )
         return fig
 
