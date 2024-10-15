@@ -174,12 +174,9 @@ class RiskConeComponent(AnalyticsComponent):
                  percentile_colors: List[str] = None):
         super().__init__()
         
-        # Process pricing_date with business_day_offset
-        pricing_date = business_day_offset(pricing_date or date.today(), -1, roll='forward')
-        
         # Initialize RiskConeEngine internally with given parameters
         self.engine = RiskConeEngine(
-            pricing_date=pricing_date,
+            pricing_date=pricing_date or date.today(),
             end_date=end_date,
             ccy_under=ccy_under,
             ccy_over=ccy_over,
