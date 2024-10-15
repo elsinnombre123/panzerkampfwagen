@@ -4,42 +4,37 @@ from abc_quant_internal.boltweb import valuation
 from abc_quant.risk import MarketDataPattern, MarketDataShock, MarketDataShockType, MarketDataShockBasedScenario
 from abc_quant.markets import PricingContext, HistoricalPricingContext
 from abc_quant.markets.portfolio import Portfolio
-from datetime import date
+from datetime import date, timedelta
 from dateutil.relativedelta import relativedelta
 import pandas as pd
 import plotly.graph_objs as go
-from typing import List, Dict
+from typing import List, Dict, Optional
 from abc_quant.datetime import business_day_offset
 from abc_quant_analytics.interfaces.analytics_engine_interface import AnalyticsEngine
 from abc_quant_analytics.interfaces.analytics_component_interface import AnalyticsComponent, MetaDataKeys
 from abc_quant_analytics.visualization_params import VisualizationParameters
 
-# Color dictionary function
-def abc_color(c):
-    color_dict = {
-        'darkblue': 'rgb(0, 53, 95)',
-        'blue': 'rgb(115, 153, 198)',
-        'lightgrey': 'rgb(221, 221, 221)',
-        'gold': 'rgb(255, 204, 0)',
-        'darkred': 'rgb(192, 0, 0)',
-        'green': 'rgb(0, 176, 80)',
-        'maroon': 'rgb(139, 14, 4)',
-        'pink': 'rgb(181, 125, 181)',
-        'orange': 'rgb(255, 165, 0)',
-        'cyan': 'rgb(0, 255, 255)'
-    }
-    return color_dict.get(c, 'rgb(0, 0, 0)')  # Default to black if color not found
-
 # ENGINE
 class RiskConeEngine(AnalyticsEngine):
-    def __init__(self, pricing_date: date, end_date: date, ccy_under: str, ccy_over: str, 
-                 ccy_payout: str = None, freq: str = 'W-FRI', csa_term: str = 'USD-1', 
-                 market_data_location: str = 'NYC', percentiles: List[float] = [0.95, 0.05, 0.90, 0.10], 
-                 precision: int = 4):
+    def __init__(self, 
+                 pricing_date: Optional[date] = None, 
+                 end_date: str = '1y', 
+                 ccy_under: str = 'EUR', 
+                 ccy_over: str = 'USD', 
+                 ccy_payout: Optional[str] = None, 
+                 freq: str = 'W-FRI', 
+                 csa_term: str = 'USD-1', 
+                 market_data_location: str = 'NYC', 
+                 percentiles: List[float] = [0.95, 0.05, 0.90, 0.10], 
+                 precision: int = 4, 
+                 tenor: Optional[List[str]] = None):
         super().__init__()
-        # Use business_day_offset directly to align with original structure
-        self.pricing_date = business_day_offset(pricing_date, -1, roll='forward')
-        self.end_date = business_day_offset(end_date, -1, roll='forward')
+        
+        # Initialize pricing_date and end_date
+        self.pricing_date = business_day_offset(pricing_date or date.today(), -1, roll='forward')
+        self.end_date_label = end_date  # Store the input end_date label for annotation
+        self.end_date = self.calculate_end_date(end_date, tenor)
+        
         self.ccy_under = ccy_under
         self.ccy_over = ccy_over
         self.ccy_payout = ccy_payout or ccy_over
@@ -50,20 +45,72 @@ class RiskConeEngine(AnalyticsEngine):
         self.precision = precision
         self.cross = f"{ccy_over}/{ccy_under}"
         self.date_range = self.generate_date_range()
+        
+        # Calculate highlight dates based on the tenor values provided
+        self.highlight_dates = self.generate_highlight_dates(tenor)
 
+    # Valid periods for tenor, end_date, and histspot_lookback
+    VALID_PERIODS = {
+        '3m': relativedelta(months=3),
+        '6m': relativedelta(months=6),
+        '9m': relativedelta(months=9),
+        '1y': relativedelta(years=1),
+        '2y': relativedelta(years=2)
+    }
+
+    def calculate_end_date(self, end_date: str, tenor: Optional[List[str]]) -> date:
+        # Verify end_date is valid
+        if end_date not in self.VALID_PERIODS:
+            raise ValueError(f"Invalid end_date '{end_date}'. Allowed values: {list(self.VALID_PERIODS.keys())}")
+
+        # Find the maximum tenor duration by checking order in VALID_PERIODS
+        if tenor:
+            max_tenor = sorted(tenor, key=lambda t: list(self.VALID_PERIODS.keys()).index(t))[-1]
+            if list(self.VALID_PERIODS.keys()).index(end_date) < list(self.VALID_PERIODS.keys()).index(max_tenor):
+                raise ValueError(f"end_date '{end_date}' must be equal to or greater than the maximum tenor '{max_tenor}'.")
+
+        return business_day_offset(self.pricing_date + self.VALID_PERIODS[end_date], -1, roll='forward')
+
+    @staticmethod
+    def abc_color(c):
+        color_dict = {
+            'darkblue': 'rgb(0, 53, 95)',
+            'blue': 'rgb(115, 153, 198)',
+            'lightgrey': 'rgb(221, 221, 221)',
+            'gold': 'rgb(255, 204, 0)',
+            'darkred': 'rgb(192, 0, 0)',
+            'green': 'rgb(0, 176, 80)',
+            'maroon': 'rgb(139, 14, 4)',
+            'pink': 'rgb(181, 125, 181)',
+            'orange': 'rgb(255, 165, 0)',
+            'cyan': 'rgb(0, 255, 255)'
+        }
+        return color_dict.get(c, 'rgb(0, 0, 0)')
+    
     def generate_date_range(self):
-        # Generate date range using bdate_range and convert to datetime.date format
         date_range = pd.bdate_range(self.pricing_date, self.end_date, freq=self.freq).date.tolist()
         
-        # Remove first date if it matches the pricing date (as per Script 1 behavior)
         if date_range[0] == self.pricing_date:
             date_range = date_range[1:]
         
-        # Add end_date if not included in date_range
         if date_range[-1] != self.end_date:
             date_range.append(self.end_date)
 
         return date_range
+
+    def generate_highlight_dates(self, tenor: Optional[List[str]]) -> Dict[str, date]:
+        highlight_dates = {}
+        
+        # Process each tenor to create a date offset
+        if tenor:
+            for t in tenor:
+                months = self.VALID_PERIODS[t]
+                highlight_date = business_day_offset(self.pricing_date + months, -1, roll='forward')
+                highlight_dates[t] = highlight_date
+
+        # Automatically include end_date with the input label as the final highlight date
+        highlight_dates[self.end_date_label] = self.end_date
+        return highlight_dates
 
     def calculate_spot(self):
         fwd = tdapi.FXForwardBuilder(over=self.ccy_over, under=self.ccy_under, expirysettledate='0b')
@@ -72,7 +119,6 @@ class RiskConeEngine(AnalyticsEngine):
         return fwd.strike
 
     def historical_spot(self, start_date, end_date):
-        # Ensure start_date and end_date align with business days
         start_date = business_day_offset(start_date, 0, roll='forward')
         end_date = business_day_offset(end_date, 0, roll='forward')
         
@@ -81,7 +127,6 @@ class RiskConeEngine(AnalyticsEngine):
             fwd.resolve(in_place=False)
             risks = fwd.calc(valuation('FXSpot'))
         
-        # Convert index to datetime.date format for consistency
         return pd.DataFrame(risks.result(), columns=['Historical Spot'], index=pd.bdate_range(start=start_date, end=end_date).date.tolist())
 
     def risk_cone(self) -> pd.DataFrame:
@@ -113,56 +158,102 @@ class RiskConeEngine(AnalyticsEngine):
 # COMPONENT
 class RiskConeComponent(AnalyticsComponent):
     def __init__(self, 
-                 engine: RiskConeEngine, 
-                 highlight_dates: Dict[str, date] = None, 
-                 show_histspot: bool = True, 
+                 pricing_date: Optional[date] = None, 
+                 end_date: str = '1y', 
+                 ccy_under: str = 'EUR', 
+                 ccy_over: str = 'USD', 
+                 ccy_payout: Optional[str] = None, 
+                 freq: str = 'W-FRI', 
+                 csa_term: str = 'USD-1', 
+                 market_data_location: str = 'NYC', 
                  percentiles: List[float] = [0.95, 0.05, 0.90, 0.10], 
+                 precision: int = 4, 
+                 tenor: Optional[List[str]] = None, 
+                 show_histspot: bool = True, 
+                 histspot_lookback: str = '1y',  # New parameter for historical lookback period
                  percentile_colors: List[str] = None):
         super().__init__()
-        self.engine = engine
-        # Convert highlight_dates to ensure all values are datetime.date if not already
-        self.highlight_dates = {label: business_day_offset(dh, 0) for label, dh in (highlight_dates or {}).items()}
+        
+        # Initialize RiskConeEngine internally with given parameters
+        self.engine = RiskConeEngine(
+            pricing_date=pricing_date,
+            end_date=end_date,
+            ccy_under=ccy_under,
+            ccy_over=ccy_over,
+            ccy_payout=ccy_payout,
+            freq=freq,
+            csa_term=csa_term,
+            market_data_location=market_data_location,
+            percentiles=percentiles,
+            precision=precision,
+            tenor=tenor
+        )
+        
+        self.highlight_dates = self.engine.highlight_dates
         self.show_histspot = show_histspot
+        self.histspot_lookback = histspot_lookback  # Store the histspot_lookback
         self.percentiles = percentiles
         self.percentile_colors = percentile_colors or ['#FF0000', '#00FF00', '#FFA500', '#00FFFF']
         
         while len(self.percentile_colors) < len(self.percentiles):
             self.percentile_colors.extend(['#FF0000', '#00FF00', '#FFA500', '#00FFFF'])
 
+        # Validate histspot_lookback against the allowed values
+        if self.histspot_lookback not in RiskConeEngine.VALID_PERIODS:
+            raise ValueError(f"Invalid histspot_lookback '{self.histspot_lookback}'. Allowed values: {list(RiskConeEngine.VALID_PERIODS.keys())}")
+
     def get_visualization(self) -> go.Figure:
         df = self.engine.process()
-        
-        hist_spot_df = self.engine.historical_spot(
-            self.engine.pricing_date - relativedelta(years=1), 
-            self.engine.pricing_date
-        ) if self.show_histspot else None
+    
+        # Calculate the start date for the historical spot based on histspot_lookback
+        hist_start_date = self.engine.pricing_date - RiskConeEngine.VALID_PERIODS[self.histspot_lookback]
+        hist_spot_df = self.engine.historical_spot(hist_start_date, self.engine.pricing_date) if self.show_histspot else None
 
         fig = go.Figure()
 
+        # Plot historical spot data
         if self.show_histspot and hist_spot_df is not None:
             fig.add_trace(go.Scatter(x=hist_spot_df.index, y=hist_spot_df['Historical Spot'], mode='lines', 
-                                     name='Historical Spot', line=dict(color=abc_color('darkblue'))))
+                                     name='Historical Spot', line=dict(color=self.engine.abc_color('blue'))))
 
+        # Plot forward curve
         fig.add_trace(go.Scatter(x=df.index, y=df['Forward Curve'], mode='lines', name='Forward Curve',
-                                 line=dict(color=abc_color('blue'))))
-
-        for i, (col, color) in enumerate(zip(df.columns[:-2], self.percentile_colors[:len(self.percentiles)])):
+                                 line=dict(color=self.engine.abc_color('darkblue'))))
+        fig.add_annotation(x=df.index[-1] + timedelta(days=25),
+                           y=df['Forward Curve'].iloc[-1],
+                           text=f'{df["Forward Curve"].iloc[-1]:.4f}',
+                           showarrow=False, arrowhead=2, ax=0)
+        
+        # Plot risk cone percentiles and add annotations for each percentile's final value
+        for percentile, color in zip(self.percentiles, self.percentile_colors[:len(self.percentiles)]):
+            col = f"{int(percentile * 100)}th Percentile"
             fig.add_trace(go.Scatter(x=df.index, y=df[col], mode='lines', name=col,
                                      line=dict(color=color, dash='dash')))
+            
+            # Annotation for the final percentile value
+            fig.add_annotation(
+                x=df.index[-1] + timedelta(days=25), 
+                y=df[col].iloc[-1],
+                text=f'{df[col].iloc[-1]:.4f}', 
+                showarrow=False, arrowhead=2, ax=-30)
 
+        # Highlight specific dates
         for label, dh in self.highlight_dates.items():
-            fig.add_vline(x=dh, line=dict(color='black', dash='dash'))
-            fig.add_annotation(x=dh, y=df['Forward Curve'].max() * 1.05, text=label,
+            fig.add_vline(x=dh, line=dict(color='grey', dash='dash'))
+            fig.add_annotation(x=dh, y=df['Forward Curve'].max() * 1.15, text=label,
                                showarrow=False, xshift=-15, yshift=10)
 
+        # Set layout for the figure
         fig.update_layout(
             title=dict(text=f"Risk Cone for {self.engine.ccy_over}/{self.engine.ccy_under}", x=0.5),
             xaxis_title="Date",
             yaxis_title="Spot",
-            legend=dict(yanchor="top", xanchor="center", x=0.5, y=-0.3),
-            yaxis_range=[df.min().min() * 0.9, df.max().max() * 1.1],
-            width=900,
-            height=600
+            legend=dict(yanchor="top", xanchor="center", x=0.5, y=-0.15, orientation='h'),
+            yaxis_range=[df.min().min() * 0.95, df.max().max() * 1.05],
+            width=1000,
+            height=600,
+            xaxis_showgrid=False,  # Disable x-axis gridlines
+            yaxis_showgrid=False   # Disable y-axis gridlines
         )
         return fig
 
@@ -175,87 +266,19 @@ class RiskConeComponent(AnalyticsComponent):
 
     @property
     def metadata(self) -> Dict[str, str]:
-        return {MetaDataKeys.Title: f"Risk Cone for {self.engine.ccy_over}/{self.engine.ccy_under}"}
+        return {MetaDataKeys.Title: f"Risk Cone for {self.engine.ccy_under}{self.engine.ccy_over}"}
 
 # Example usage
-pricing_date = business_day_offset(date.today(), -1, roll='forward')
-end_date = business_day_offset(pricing_date + relativedelta(years=1), -1, roll='forward')
-highlight_dates = {
-    '3m': business_day_offset(pricing_date + relativedelta(months=3), -1, roll='forward'),
-    '6m': business_day_offset(pricing_date + relativedelta(months=6), -1, roll='forward'),
-    '1y': end_date
-}
-
 component = RiskConeComponent(
-    engine=RiskConeEngine(
-        pricing_date=pricing_date,
-        end_date=end_date,
-        ccy_under='EUR',
-        ccy_over='USD'
-    ),
-    highlight_dates=highlight_dates,
+    pricing_date=date(2023, 10, 12),
+    tenor=['3m', '6m'],
+    end_date='1y',
+    histspot_lookback='1y',  # Specify historical lookback
+    ccy_under='EUR',
+    ccy_over='USD',
     show_histspot=True,
     percentiles=[0.95, 0.05, 0.90, 0.10],
     percentile_colors=['#FF0000', '#00FF00', '#FFA500', '#00FFFF']
 )
 fig = component.get_visualization()
 fig.show()
-
-def get_visualization(self) -> go.Figure:
-    df = self.engine.process()
-    
-    # Retrieve historical spot data if needed
-    hist_spot_df = self.engine.historical_spot(
-        self.engine.pricing_date - relativedelta(years=1), 
-        self.engine.pricing_date
-    ) if self.show_histspot else None
-
-    fig = go.Figure()
-
-    # Plot historical spot data
-    if self.show_histspot and hist_spot_df is not None:
-        fig.add_trace(go.Scatter(x=hist_spot_df.index, y=hist_spot_df['Historical Spot'], mode='lines', 
-                                 name='Historical Spot', line=dict(color=abc_color('darkblue'))))
-
-    # Plot forward curve
-    fig.add_trace(go.Scatter(x=df.index, y=df['Forward Curve'], mode='lines', name='Forward Curve',
-                             line=dict(color=abc_color('blue'))))
-
-    # Plot risk cone percentiles and add annotations for each percentile's final value
-    for i, (col, color) in enumerate(zip(df.columns[:-2], self.percentile_colors[:len(self.percentiles)])):
-        fig.add_trace(go.Scatter(x=df.index, y=df[col], mode='lines', name=col,
-                                 line=dict(color=color, dash='dash')))
-        
-        # Annotation for the final percentile value
-        fig.add_annotation(
-            x=df.index[-1] + pd.Timedelta(days=3),  # Slightly to the right of the final date
-            y=df[col].iloc[-1],
-            text=f'{df[col].iloc[-1]:.2f}',  # Format to two decimal places
-            showarrow=True, arrowhead=2, ax=-30  # Arrow pointing left
-        )
-
-    # Add annotation for the final value of the forward curve
-    fig.add_annotation(
-        x=df.index[-1] + pd.Timedelta(days=3),
-        y=df['Forward Curve'].iloc[-1],
-        text=f'{df["Forward Curve"].iloc[-1]:.2f}',
-        showarrow=True, arrowhead=2, ax=-30
-    )
-
-    # Highlight specific dates
-    for label, dh in self.highlight_dates.items():
-        fig.add_vline(x=dh, line=dict(color='black', dash='dash'))
-        fig.add_annotation(x=dh, y=df['Forward Curve'].max() * 1.05, text=label,
-                           showarrow=False, xshift=-15, yshift=10)
-
-    # Set layout for the figure
-    fig.update_layout(
-        title=dict(text=f"Risk Cone for {self.engine.ccy_over}/{self.engine.ccy_under}", x=0.5),
-        xaxis_title="Date",
-        yaxis_title="Spot",
-        legend=dict(yanchor="top", xanchor="center", x=0.5, y=-0.3),
-        yaxis_range=[df.min().min() * 0.9, df.max().max() * 1.1],
-        width=900,
-        height=600
-    )
-    return fig
