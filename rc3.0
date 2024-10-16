@@ -25,7 +25,8 @@ class RiskConeEngine(AnalyticsEngine):
                  freq: str = 'W-FRI', 
                  csa_term: str = 'USD-1', 
                  market_data_location: str = 'NYC', 
-                 percentiles: List[float] = [0.95, 0.05, 0.90, 0.10], 
+                 percentiles: List[float] = [0.95, 0.05], 
+                 decimals: int = 4, 
                  precision: int = 4, 
                  tenor: Optional[List[str]] = None):
         super().__init__()
@@ -42,6 +43,7 @@ class RiskConeEngine(AnalyticsEngine):
         self.csa_term = csa_term
         self.market_data_location = market_data_location
         self.percentiles = percentiles
+        self.decimals = decimals
         self.precision = precision
         self.cross = f"{ccy_over}/{ccy_under}"
         self.date_range = self.generate_date_range()
@@ -78,8 +80,10 @@ class RiskConeEngine(AnalyticsEngine):
             'blue': 'rgb(115, 153, 198)',
             'lightgrey': 'rgb(221, 221, 221)',
             'gold': 'rgb(255, 204, 0)',
-            'darkred': 'rgb(192, 0, 0)',
-            'green': 'rgb(0, 176, 80)',
+            'darkred': 'rgb(139, 0, 0)',
+            'red': 'rgb(255, 0, 0)',
+            'green': 'rgb(0, 255, 0)',
+            'darkgreen': 'rgb(0, 100, 0)',
             'maroon': 'rgb(139, 14, 4)',
             'pink': 'rgb(181, 125, 181)',
             'orange': 'rgb(255, 165, 0)',
@@ -166,14 +170,16 @@ class RiskConeComponent(AnalyticsComponent):
                  freq: str = 'W-FRI', 
                  csa_term: str = 'USD-1', 
                  market_data_location: str = 'NYC', 
-                 percentiles: List[float] = [0.95, 0.05, 0.90, 0.10], 
+                 percentiles: List[float] = [0.95, 0.05], 
+                 decimals: int = 4,
                  precision: int = 4, 
                  tenor: Optional[List[str]] = None, 
                  show_histspot: bool = True, 
-                 histspot_lookback: str = '1y',  # New parameter for historical lookback period
-                 percentile_colors: List[str] = None):
+                 histspot_lookback: str = '1y', 
+                 color_flip: bool = False,
+                 current_spot: bool = False):
         super().__init__()
-        
+
         # Initialize RiskConeEngine internally with given parameters
         self.engine = RiskConeEngine(
             pricing_date=pricing_date or date.today(),
@@ -185,22 +191,27 @@ class RiskConeComponent(AnalyticsComponent):
             csa_term=csa_term,
             market_data_location=market_data_location,
             percentiles=percentiles,
+            decimals=decimals,
             precision=precision,
             tenor=tenor
         )
         
         self.highlight_dates = self.engine.highlight_dates
         self.show_histspot = show_histspot
-        self.histspot_lookback = histspot_lookback  # Store the histspot_lookback
-        self.percentiles = percentiles
-        self.percentile_colors = percentile_colors or ['#FF0000', '#00FF00', '#FFA500', '#00FFFF']
-        
-        while len(self.percentile_colors) < len(self.percentiles):
-            self.percentile_colors.extend(['#FF0000', '#00FF00', '#FFA500', '#00FFFF'])
+        self.histspot_lookback = histspot_lookback
+        self.decimals = decimals
+        self.color_flip = color_flip
+        self.current_spot = current_spot
 
-        # Validate histspot_lookback against the allowed values
-        if self.histspot_lookback not in RiskConeEngine.VALID_PERIODS:
-            raise ValueError(f"Invalid histspot_lookback '{self.histspot_lookback}'. Allowed values: {list(RiskConeEngine.VALID_PERIODS.keys())}")
+        # Determine colors based on the number of percentiles
+        if len(percentiles) == 2:
+            self.percentile_colors = ['red', 'green']
+        elif len(percentiles) == 4:
+            self.percentile_colors = ['darkred', 'red', 'green', 'darkgreen']
+        
+        # Flip colors if color_flip is True
+        if color_flip:
+            self.percentile_colors.reverse()
 
     def get_visualization(self) -> go.Figure:
         df = self.engine.process()
@@ -221,20 +232,20 @@ class RiskConeComponent(AnalyticsComponent):
                                  line=dict(color=self.engine.abc_color('darkblue'))))
         fig.add_annotation(x=df.index[-1] + timedelta(days=25),
                            y=df['Forward Curve'].iloc[-1],
-                           text=f'{df["Forward Curve"].iloc[-1]:.4f}',
+                           text=f'{df["Forward Curve"].iloc[-1]:.{self.decimals}f}',
                            showarrow=False, arrowhead=2, ax=0)
         
         # Plot risk cone percentiles and add annotations for each percentile's final value
-        for percentile, color in zip(self.percentiles, self.percentile_colors[:len(self.percentiles)]):
+        for percentile, color in zip(self.engine.percentiles, self.percentile_colors):
             col = f"{int(percentile * 100)}th Percentile"
             fig.add_trace(go.Scatter(x=df.index, y=df[col], mode='lines', name=col,
-                                     line=dict(color=color, dash='dash')))
+                                     line=dict(color=self.engine.abc_color(color), dash='dash')))
             
             # Annotation for the final percentile value
             fig.add_annotation(
                 x=df.index[-1] + timedelta(days=25), 
                 y=df[col].iloc[-1],
-                text=f'{df[col].iloc[-1]:.4f}', 
+                text=f'{df[col].iloc[-1]:.{self.decimals}f}', 
                 showarrow=False, arrowhead=2, ax=-30)
 
         # Highlight specific dates
@@ -243,17 +254,22 @@ class RiskConeComponent(AnalyticsComponent):
             fig.add_annotation(x=dh, y=df['Forward Curve'].max() * 1.15, text=label,
                                showarrow=False, xshift=-15, yshift=10)
 
+        # Add current spot horizontal line if enabled
+        if self.current_spot:
+            fig.add_hline(y=df['Current Spot'].iloc[0], line=dict(color=self.engine.abc_color('blue'), dash='dash'),
+                          annotation_text=f'Current Spot: {df["Current Spot"].iloc[0]:.{self.decimals}f}', showarrow=False)
+
         # Set layout for the figure
         fig.update_layout(
-            title=dict(text=f"Risk Cone for {self.engine.ccy_over}/{self.engine.ccy_under}", x=0.5),
+            title=dict(text=f"Risk Cone for {self.engine.ccy_under}{self.engine.ccy_over}", x=0.5),
             xaxis_title="Date",
             yaxis_title="Spot",
             legend=dict(yanchor="top", xanchor="center", x=0.5, y=-0.15, orientation='h'),
             yaxis_range=[df.min().min() * 0.95, df.max().max() * 1.05],
             width=1000,
             height=600,
-            xaxis_showgrid=False,  # Disable x-axis gridlines
-            yaxis_showgrid=False   # Disable y-axis gridlines
+            xaxis_showgrid=False,
+            yaxis_showgrid=False
         )
         return fig
 
@@ -273,12 +289,14 @@ component = RiskConeComponent(
     pricing_date=date.today(),
     tenor=['3m', '6m'],
     end_date='1y',
-    histspot_lookback='1y',  # Specify historical lookback
+    histspot_lookback='1y',  
     ccy_under='EUR',
     ccy_over='USD',
     show_histspot=True,
-    percentiles=[0.95, 0.05, 0.90, 0.10],
-    percentile_colors=['#FF0000', '#00FF00', '#FFA500', '#00FFFF']
+    percentiles=[0.95, 0.05],
+    decimals=2,
+    color_flip=True,
+    current_spot=True
 )
 fig = component.get_visualization()
 fig.show()
