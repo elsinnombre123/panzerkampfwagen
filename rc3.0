@@ -233,8 +233,8 @@ class RiskConeComponent(AnalyticsComponent):
         fig.add_annotation(x=df.index[-1] + timedelta(days=25),
                            y=df['Forward Curve'].iloc[-1],
                            text=f'{df["Forward Curve"].iloc[-1]:.{self.decimals}f}',
-                           showarrow=False, arrowhead=2, ax=0)
-        
+                           showarrow=False)
+
         # Plot risk cone percentiles and add annotations for each percentile's final value
         for percentile, color in zip(self.engine.percentiles, self.percentile_colors):
             col = f"{int(percentile * 100)}th Percentile"
@@ -246,7 +246,7 @@ class RiskConeComponent(AnalyticsComponent):
                 x=df.index[-1] + timedelta(days=25), 
                 y=df[col].iloc[-1],
                 text=f'{df[col].iloc[-1]:.{self.decimals}f}', 
-                showarrow=False, arrowhead=2, ax=-30)
+                showarrow=False)
 
         # Highlight specific dates
         for label, dh in self.highlight_dates.items():
@@ -254,10 +254,19 @@ class RiskConeComponent(AnalyticsComponent):
             fig.add_annotation(x=dh, y=df['Forward Curve'].max() * 1.15, text=label,
                                showarrow=False, xshift=-15, yshift=10)
 
-        # Add current spot horizontal line if enabled
+        # Add current spot horizontal line if enabled, starting from pricing_date to end_date
         if self.current_spot:
-            fig.add_hline(y=df['Current Spot'].iloc[0], line=dict(color=self.engine.abc_color('blue'), dash='dash'),
-                          annotation_text=f'Current Spot: {df["Current Spot"].iloc[0]:.{self.decimals}f}', showarrow=False)
+            fig.add_shape(
+                type="line",
+                x0=self.engine.pricing_date, x1=self.engine.end_date,
+                y0=df['Current Spot'].iloc[0], y1=df['Current Spot'].iloc[0],
+                line=dict(color=self.engine.abc_color('blue'), dash='dash')
+            )
+            fig.add_annotation(
+                x=self.engine.end_date, y=df['Current Spot'].iloc[0],
+                text=f'Current Spot: {df["Current Spot"].iloc[0]:.{self.decimals}f}',
+                showarrow=False, xshift=-10
+            )
 
         # Set layout for the figure
         fig.update_layout(
