@@ -18,6 +18,9 @@ lookahead_days = 42  # Number of trading days to look ahead
 republican_election_years = [1952, 1956, 1968, 1972, 1980, 1984, 1988, 2000, 2004, 2016]
 democrat_election_years = [1960, 1964, 1976, 1992, 1996, 2008, 2012, 2020]
 
+# Define a specific year to plot individually
+s_year = 2024  # Example year
+
 # Filter the start date based on input
 start_month_date = datetime.strptime(f"01 {start_month}", "%d %B")
 
@@ -61,6 +64,25 @@ plt.figure(figsize=(10, 6))
 plt.plot(all_avg.values, label="Overall Average")
 plt.plot(rep_avg.values, label="Republican Average (Election Year)")
 plt.plot(dem_avg.values, label="Democrat Average (Election Year)")
+
+# Additional plot for the specific year `s_year`
+specific_year_data = data[(data['date'].dt.year == s_year) | (data['date'].dt.year == s_year + 1)]
+specific_year_data = specific_year_data.sort_values('date')
+
+specific_year_start = specific_year_data[(specific_year_data['date'].dt.year == s_year) & (specific_year_data['date'].dt.month >= start_month_date.month)]
+if len(specific_year_start) > 0:
+    first_date_specific = specific_year_start['date'].iloc[0]
+    specific_year_data = specific_year_data[specific_year_data['date'] >= first_date_specific]
+    specific_year_data = specific_year_data.head(lookahead_days)
+
+    # Normalize to start at 100
+    initial_price_specific = specific_year_data['spx'].iloc[0]
+    specific_year_data['indexed_spx'] = (specific_year_data['spx'] / initial_price_specific) * 100
+
+    # Plot the specific year line
+    plt.plot(specific_year_data['indexed_spx'].values, label=f"Year {s_year}")
+
+# Finalize and show plot
 plt.xlabel("Trading Days from Start Date")
 plt.ylabel("Indexed Performance (Starting at 100)")
 plt.title(f"Average Performance from {start_month} (Over {lookahead_days} Trading Days)")
