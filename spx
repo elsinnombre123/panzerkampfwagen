@@ -1,0 +1,57 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+from datetime import datetime, timedelta
+
+# Load the CSV data
+data = pd.read_csv("your_file.csv", parse_dates=["date"])
+
+# Define the start month and lookahead period
+start_month = "November"  # You can change to "January", etc.
+lookahead_days = 42  # Number of trading days to look ahead
+
+# Define Republican and Democrat election years (can be customized)
+republican_election_years = [2016, 2000, 1980]  # Example years
+democrat_election_years = [2020, 2008, 1992]  # Example years
+
+# Filter the start date based on input
+start_date = datetime.strptime(f"01 {start_month}", "%d %B")
+
+# Prepare a dictionary to store data
+indexed_performances = {'all': [], 'republican': [], 'democrat': []}
+
+# Process each year individually
+for year in data['date'].dt.year.unique():
+    year_data = data[data['date'].dt.year == year].sort_values('date')
+    year_data = year_data[year_data['date'].dt.month >= start_date.month]  # Get data from start month onward
+    if len(year_data) == 0:
+        continue
+    first_date = year_data['date'].iloc[0]
+    year_data = year_data[year_data['date'] >= first_date]
+    year_data = year_data.head(lookahead_days)  # Get only lookahead_days worth of data
+
+    # Normalize the prices to start at 100
+    initial_price = year_data['spx'].iloc[0]
+    year_data['indexed_spx'] = (year_data['spx'] / initial_price) * 100
+
+    # Add to the appropriate list
+    indexed_performances['all'].append(year_data['indexed_spx'].values)
+    if year in republican_election_years:
+        indexed_performances['republican'].append(year_data['indexed_spx'].values)
+    elif year in democrat_election_years:
+        indexed_performances['democrat'].append(year_data['indexed_spx'].values)
+
+# Calculate average for each group
+all_avg = pd.DataFrame(indexed_performances['all']).mean()
+rep_avg = pd.DataFrame(indexed_performances['republican']).mean()
+dem_avg = pd.DataFrame(indexed_performances['democrat']).mean()
+
+# Plot the results
+plt.figure(figsize=(10, 6))
+plt.plot(all_avg.values, label="Overall Average")
+plt.plot(rep_avg.values, label="Republican Average (Election Year)")
+plt.plot(dem_avg.values, label="Democrat Average (Election Year)")
+plt.xlabel("Trading Days from Start Date")
+plt.ylabel("Indexed Performance (Starting at 100)")
+plt.title(f"Average Performance from {start_month} (Over {lookahead_days} Trading Days)")
+plt.legend()
+plt.show()
