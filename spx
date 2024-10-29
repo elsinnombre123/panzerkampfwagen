@@ -5,29 +5,40 @@ from datetime import datetime, timedelta
 # Load the CSV data
 data = pd.read_csv("your_file.csv", parse_dates=["date"])
 
+# Define the default start and end dates for the dataset
+start_date_df = "1953-01-01"  # Default start date
+end_date_df = "2024-10-28"  # Default end date
+data = data[(data['date'] >= start_date_df) & (data['date'] <= end_date_df)]
+
 # Define the start month and lookahead period
 start_month = "November"  # You can change to "January", etc.
 lookahead_days = 42  # Number of trading days to look ahead
 
-# Define Republican and Democrat election years (can be customized)
-republican_election_years = [2016, 2000, 1980]  # Example years
-democrat_election_years = [2020, 2008, 1992]  # Example years
+# Define Republican and Democrat election years
+republican_election_years = [1952, 1956, 1968, 1972, 1980, 1984, 1988, 2000, 2004, 2016]
+democrat_election_years = [1960, 1964, 1976, 1992, 1996, 2008, 2012, 2020]
 
 # Filter the start date based on input
-start_date = datetime.strptime(f"01 {start_month}", "%d %B")
+start_month_date = datetime.strptime(f"01 {start_month}", "%d %B")
 
 # Prepare a dictionary to store data
 indexed_performances = {'all': [], 'republican': [], 'democrat': []}
 
 # Process each year individually
 for year in data['date'].dt.year.unique():
-    year_data = data[data['date'].dt.year == year].sort_values('date')
-    year_data = year_data[year_data['date'].dt.month >= start_date.month]  # Get data from start month onward
-    if len(year_data) == 0:
+    # Filter data for the current year and the following year to allow lookahead to span across years
+    year_data = data[(data['date'].dt.year == year) | (data['date'].dt.year == year + 1)]
+    year_data = year_data.sort_values('date')
+
+    # Filter data from the first occurrence of the defined start month in the current year
+    year_start_data = year_data[(year_data['date'].dt.year == year) & (year_data['date'].dt.month >= start_month_date.month)]
+    if len(year_start_data) == 0:
         continue
-    first_date = year_data['date'].iloc[0]
+    
+    # Get the first available date in the specified start month
+    first_date = year_start_data['date'].iloc[0]
     year_data = year_data[year_data['date'] >= first_date]
-    year_data = year_data.head(lookahead_days)  # Get only lookahead_days worth of data
+    year_data = year_data.head(lookahead_days)  # Take only the lookahead period
 
     # Normalize the prices to start at 100
     initial_price = year_data['spx'].iloc[0]
