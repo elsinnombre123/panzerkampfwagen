@@ -1,0 +1,148 @@
+import datetime as dt
+from enum import Enum
+from typing import Union, List, Dict
+import pandas as pd
+import numpy as np
+from abc_quant.analytics_engine import AnalyticsEngine  # Assuming this is the parent class for the engine
+from abc_quant.dataviz.plotly.plotlyviz import PlotlyViz  # Assuming this is used for visualization
+import plotly.express as px
+from abc_quant_internal.tsdb import TSDB
+
+# Define important parameters
+class Years(Enum):
+    Y1 = '1y'
+    Y2 = '2y'
+    Y5 = '5y'
+    Y10 = '10y'
+    Y15 = '15y'
+    Y20 = '20y'
+
+class Cross(Enum):
+    EURUSD = "wmeur"
+    GBPUSD = "wmgbp"
+    USDJPY = "wmjpy"
+    AUDUSD = "wmaud"
+    USDCAD = "wmcad"
+
+class Period(Enum):
+    M1 = '1m'
+    M2 = '2m'
+    M3 = '3m'
+    M6 = '6m'
+
+class MaxOverlap(Enum):
+    W0 = '0'
+    W1 = '1w'
+    W2 = '2w'
+
+class Direction(Enum):
+    UP = 1
+    DOWN = 0
+
+# Engine class
+class BigMovesEngine(AnalyticsEngine):
+    def __init__(self,
+                 cross: Cross,
+                 years: Years,
+                 period: Period,
+                 num_moves: int,
+                 max_overlap: MaxOverlap = MaxOverlap.W0,
+                 direction: Direction = Direction.UP):
+
+        super().__init__()
+        self.cross = cross
+        self.years = years
+        self.period = period
+        self.num_moves = num_moves
+        self.max_overlap = max_overlap
+        self.direction = direction
+        self.data = None
+
+    def fetch_historical_data(self):
+        end = dt.date.today()
+        start = end - dt.timedelta(days=int(self.years.value[:-1]) * 365)
+
+        # Fetch historical data
+        tsdb = TSDB()
+        ref_series = tsdb.get_data(self.cross.value, start=start, end=end)
+        df = ref_series.to_frame(name='Spot')
+        df.index.name = "Date"
+
+        self.data = df.ffill().bfill()
+
+    def process(self) -> pd.DataFrame:
+        if self.data is None:
+            self.fetch_historical_data()
+
+        df = self.data.copy()
+        period_days = {"1m": 21, "2m": 42, "3m": 63, "6m": 126}[self.period.value]
+        df['Change'] = df['Spot'].pct_change(period_days)
+
+        if self.direction == Direction.UP:
+            big_moves = df.nlargest(self.num_moves, 'Change')
+        else:
+            big_moves = df.nsmallest(self.num_moves, 'Change')
+
+        big_moves['StartDate'] = big_moves.index
+        big_moves['EndDate'] = big_moves['StartDate'] + pd.to_timedelta(period_days, unit='D')
+        return big_moves
+
+# Component class
+class BigMovesComponent(PlotlyViz):
+    def __init__(self,
+                 cross: Cross,
+                 years: Years,
+                 period: Period,
+                 num_moves: int,
+                 max_overlap: MaxOverlap = MaxOverlap.W0,
+                 direction: Direction = Direction.UP):
+
+        super().__init__()
+        self.engine = BigMovesEngine(cross=cross, years=years, period=period, num_moves=num_moves, max_overlap=max_overlap, direction=direction)
+
+    def get_visualization(self):
+        df = self.engine.process()
+
+        # Fetch full spot data for visualization
+        spot_data = self.engine.data.reset_index()
+
+        # Plotting with highlighted big moves
+        fig = px.line(spot_data, x='Date', y='Spot', title=f'Spot Data with Highlighted Big Moves ({self.engine.cross.name})')
+        for _, row in df.iterrows():
+            fig.add_vrect(
+                x0=row['StartDate'], x1=row['EndDate'],
+                fillcolor="red", opacity=0.3, layer="below", line_width=0
+            )
+
+        fig.show()
+
+    @staticmethod
+    def get_default_params() -> Dict[str, object]:
+        return {
+            'cross': Cross.EURUSD,
+            'years': Years.Y5,
+            'period': Period.M1,
+            'num_moves': 10,
+            'max_overlap': MaxOverlap.W0,
+            'direction': Direction.UP
+        }
+
+    @property
+    def metadata(self):
+        return {
+            'Title': f"Big Moves Analysis for {self.engine.cross.name}",
+            'Description': "Highlighting periods of significant moves in spot data"
+        }
+
+# Instantiate and visualize
+if __name__ == "__main__":
+    component = BigMovesComponent(
+        cross=Cross.EURUSD,
+        years=Years.Y5,
+        period=Period.M1,
+        num_moves=10,
+        max_overlap=MaxOverlap.W0,
+        direction=Direction.UP
+    )
+
+    component.get_visualization()
