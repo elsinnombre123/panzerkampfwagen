@@ -5,7 +5,7 @@ import pandas as pd
 import numpy as np
 from abc_quant_analytics.interfaces.analytics_engine_interface import AnalyticsEngine  # Assuming this is the parent class
 from abc_quant_analytics.interfaces.analytics_component_interface import AnalyticsComponent
-import plotly.express as px
+import plotly.graph_objs as go
 from abc_quant_internal.tsdb import TSDB  # Assuming this works in your environment
 
 # Parameter Enums
@@ -112,21 +112,35 @@ class BigMovesComponent(AnalyticsComponent):
             direction=direction
         )
 
-    def get_visualization(self) -> None:
+    def get_visualization(self) -> go.Figure:
         df = self.engine.process()
-
-        # Fetch full spot data for visualization
         spot_data = self.engine.data.reset_index()
 
-        # Plotting with highlighted big moves
-        fig = px.line(spot_data, x='Date', y='Spot', title=f'Spot Data with Highlighted Big Moves ({self.cross.name})')
+        # Create a plotly figure
+        fig = go.Figure()
+
+        # Plot historical spot data
+        fig.add_trace(go.Scatter(x=spot_data['Date'], y=spot_data['Spot'], mode='lines', name='Spot Data',
+                                 line=dict(color='blue')))
+
+        # Highlight big moves
         for _, row in df.iterrows():
             fig.add_vrect(
                 x0=row['StartDate'], x1=row['EndDate'],
                 fillcolor="red", opacity=0.3, layer="below", line_width=0
             )
 
-        fig.show()
+        # Set layout for the figure
+        fig.update_layout(
+            title=dict(text=f"Big Moves for {self.cross.name}", x=0.5),
+            xaxis_title="Date",
+            yaxis_title="Spot",
+            width=1000,
+            height=600,
+            xaxis_showgrid=False,
+            yaxis_showgrid=False
+        )
+        return fig
 
     @staticmethod
     def get_default_params() -> Dict[str, object]:
@@ -157,4 +171,5 @@ if __name__ == "__main__":
         direction=Direction.UP
     )
 
-    component.get_visualization()
+    fig = component.get_visualization()
+    fig.show()
