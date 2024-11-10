@@ -7,7 +7,6 @@ from abc_quant_analytics.interfaces.analytics_engine_interface import AnalyticsE
 from abc_quant_analytics.interfaces.analytics_component_interface import AnalyticsComponent
 import plotly.graph_objs as go
 from abc_quant_internal.tsdb import TSDB  # Assuming this works in your environment
-from abc_quant_analytics.visualization_params import VisualizationParameters  # Assuming this exists
 
 # Parameter Enums
 class Years(Enum):
@@ -143,9 +142,9 @@ class BigMovesComponent(AnalyticsComponent):
         )
         return fig
 
-    def get_visualization_parameters(self) -> VisualizationParameters:
-        # Providing a simple implementation to satisfy the abstract method requirement
-        return VisualizationParameters(show_legend=True, precision=2)
+    def get_visualization_parameters(self):
+        # Minimal implementation to satisfy abstract method
+        return None
 
     @staticmethod
     def get_default_params() -> Dict[str, object]:
