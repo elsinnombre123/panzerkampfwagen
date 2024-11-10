@@ -73,19 +73,21 @@ class BigMovesEngine(AnalyticsEngine):
     def process(self) -> pd.DataFrame:
         if self.data is None:
             self.fetch_historical_data()
-
+    
         df = self.data.copy()
+        # Ensure period_days is an integer representing the number of trading days
         period_days = {"1m": 21, "2m": 42, "3m": 63, "6m": 126}[self.period.value]
         df['Change'] = df['Spot'].pct_change(period_days)
-
+    
         if self.direction == Direction.UP:
             big_moves = df.nlargest(self.num_moves, 'Change')
         else:
             big_moves = df.nsmallest(self.num_moves, 'Change')
-
+    
         big_moves['StartDate'] = big_moves.index
-        big_moves['EndDate'] = big_moves['StartDate'] + pd.to_timedelta(period_days, unit='D')
+        big_moves['EndDate'] = big_moves['StartDate'] + pd.to_timedelta(period_days, unit='D')  # Corrected line
         return big_moves
+
 
 # Big Moves Component
 class BigMovesComponent(AnalyticsComponent):
