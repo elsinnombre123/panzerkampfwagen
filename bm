@@ -3,12 +3,12 @@ from enum import Enum
 from typing import Union, List, Dict
 import pandas as pd
 import numpy as np
-from abc_quant.analytics_engine import AnalyticsEngine  # Assuming this is the parent class for the engine
-from abc_quant.dataviz.plotly.plotlyviz import PlotlyViz  # Assuming this is used for visualization
+from abc_quant_analytics.interfaces.analytics_engine_interface import AnalyticsEngine  # Assuming this is the parent class
+from abc_quant_analytics.interfaces.analytics_component_interface import AnalyticsComponent
 import plotly.express as px
-from abc_quant_internal.tsdb import TSDB
+from abc_quant_internal.tsdb import TSDB  # Assuming this works in your environment
 
-# Define important parameters
+# Parameter Enums
 class Years(Enum):
     Y1 = '1y'
     Y2 = '2y'
@@ -39,7 +39,7 @@ class Direction(Enum):
     UP = 1
     DOWN = 0
 
-# Engine class
+# Big Moves Engine
 class BigMovesEngine(AnalyticsEngine):
     def __init__(self,
                  cross: Cross,
@@ -62,7 +62,7 @@ class BigMovesEngine(AnalyticsEngine):
         end = dt.date.today()
         start = end - dt.timedelta(days=int(self.years.value[:-1]) * 365)
 
-        # Fetch historical data
+        # Fetch historical data using TSDB
         tsdb = TSDB()
         ref_series = tsdb.get_data(self.cross.value, start=start, end=end)
         df = ref_series.to_frame(name='Spot')
@@ -87,8 +87,8 @@ class BigMovesEngine(AnalyticsEngine):
         big_moves['EndDate'] = big_moves['StartDate'] + pd.to_timedelta(period_days, unit='D')
         return big_moves
 
-# Component class
-class BigMovesComponent(PlotlyViz):
+# Big Moves Component
+class BigMovesComponent(AnalyticsComponent):
     def __init__(self,
                  cross: Cross,
                  years: Years,
@@ -96,18 +96,30 @@ class BigMovesComponent(PlotlyViz):
                  num_moves: int,
                  max_overlap: MaxOverlap = MaxOverlap.W0,
                  direction: Direction = Direction.UP):
-
         super().__init__()
-        self.engine = BigMovesEngine(cross=cross, years=years, period=period, num_moves=num_moves, max_overlap=max_overlap, direction=direction)
+        self.cross = cross
+        self.years = years
+        self.period = period
+        self.num_moves = num_moves
+        self.max_overlap = max_overlap
+        self.direction = direction
+        self.engine = BigMovesEngine(
+            cross=cross,
+            years=years,
+            period=period,
+            num_moves=num_moves,
+            max_overlap=max_overlap,
+            direction=direction
+        )
 
-    def get_visualization(self):
+    def get_visualization(self) -> None:
         df = self.engine.process()
 
         # Fetch full spot data for visualization
         spot_data = self.engine.data.reset_index()
 
         # Plotting with highlighted big moves
-        fig = px.line(spot_data, x='Date', y='Spot', title=f'Spot Data with Highlighted Big Moves ({self.engine.cross.name})')
+        fig = px.line(spot_data, x='Date', y='Spot', title=f'Spot Data with Highlighted Big Moves ({self.cross.name})')
         for _, row in df.iterrows():
             fig.add_vrect(
                 x0=row['StartDate'], x1=row['EndDate'],
@@ -128,9 +140,9 @@ class BigMovesComponent(PlotlyViz):
         }
 
     @property
-    def metadata(self):
+    def metadata(self) -> Dict[str, str]:
         return {
-            'Title': f"Big Moves Analysis for {self.engine.cross.name}",
+            'Title': f"Big Moves Analysis for {self.cross.name}",
             'Description': "Highlighting periods of significant moves in spot data"
         }
 
