@@ -104,11 +104,13 @@ def plot_highlighted_spot(df):
 
     plt.figure(figsize=(12, 6))
     plt.plot(df.index, df['spot'], label='Spot Price', color='blue')
-    
-    # Highlight periods with the 'highlight' column set to 1
-    highlighted = df[df['highlight'] == 1]
-    plt.fill_between(highlighted.index, df['spot'].min(), df['spot'].max(), 
-                     where=highlighted['highlight'] == 1, color='orange', alpha=0.3, label='Highlighted Periods')
+
+    # Highlight periods where 'highlight' column is 1
+    highlighted_periods = df[df['highlight'] == 1]
+    if not highlighted_periods.empty:
+        for start in highlighted_periods.index:
+            end = start + pd.Timedelta(days=20)  # 21-day window
+            plt.axvspan(start, end, color='orange', alpha=0.3)
 
     plt.title('Spot Price with Highlighted Periods')
     plt.xlabel('Date')
