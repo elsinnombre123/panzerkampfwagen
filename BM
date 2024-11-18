@@ -3,6 +3,12 @@ import datetime as dt
 from abc_quant_internal.tsdb import TSDBSymbol, MDAPISymbol, TSDB
 
 def get_spot_data(cross, start, end):
+    # Ensure start and end are of the same date type (dt.date)
+    if isinstance(start, dt.datetime):
+        start = start.date()
+    if isinstance(end, dt.datetime):
+        end = end.date()
+    
     # Fetches data using your defined method
     data_series = TSDB.get_data(cross, start=start, end=end)
     # Convert to DataFrame
@@ -51,7 +57,7 @@ def main(cross='wmeur', end_date=dt.date.today(), history='10y', num_moves=10, w
     # Calculate start date based on the history parameter
     if history.endswith('y'):
         years = int(history[:-1])
-        start_date = end_date - pd.DateOffset(years=years)
+        start_date = end_date - dt.timedelta(days=years * 365)
     else:
         raise ValueError("Unsupported history format. Use 'Xy' for years.")
 
