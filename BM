@@ -95,33 +95,54 @@ print(df_result.head())  # Display the first few rows of the result
 
 ---
 
-import matplotlib.pyplot as plt
+import plotly.graph_objs as go
 
-def plot_precise_highlighted_spot(df):
+def plotly_highlighted_spot(df):
     # Ensure 'highlight' column is present
     if 'highlight' not in df.columns:
         raise ValueError("DataFrame does not contain a 'highlight' column.")
 
-    plt.figure(figsize=(12, 6))
-    plt.plot(df.index, df['spot'], label='Spot Price', color='blue')
+    # Base spot line plot
+    spot_trace = go.Scatter(
+        x=df.index,
+        y=df['spot'],
+        mode='lines',
+        name='Spot Price',
+        line=dict(color='blue')
+    )
 
-    # Highlight periods where 'highlight' column is 1
+    # Highlighted periods as vertical rectangles
     highlighted_periods = df[df['highlight'] == 1]
-
-    # Plot vertical backgrounds using fill_between for precise highlighting
+    shapes = []
     for start in highlighted_periods.index:
         end = start + pd.Timedelta(days=20)  # Covering a 21-day window
-        plt.axvline(x=start, color='orange', alpha=0.5, linestyle='--', linewidth=0.8)  # Add vertical line at the start
-        plt.axvline(x=end, color='orange', alpha=0.5, linestyle='--', linewidth=0.8)    # Add vertical line at the end
-        plt.fill_betweenx(y=[df['spot'].min(), df['spot'].max()], x1=start, x2=end, color='orange', alpha=0.3)
+        shapes.append(
+            dict(
+                type="rect",
+                xref="x",
+                yref="paper",
+                x0=start,
+                x1=end,
+                y0=0,
+                y1=1,
+                fillcolor="orange",
+                opacity=0.3,
+                layer="below",
+                line_width=0,
+            )
+        )
 
-    plt.title('Spot Price with Highlighted Periods')
-    plt.xlabel('Date')
-    plt.ylabel('Spot Price')
-    plt.legend()
-    plt.grid(True)
-    plt.show()
+    layout = go.Layout(
+        title="Spot Price with Highlighted Periods",
+        xaxis_title="Date",
+        yaxis_title="Spot Price",
+        shapes=shapes,
+        showlegend=True
+    )
+
+    fig = go.Figure(data=[spot_trace], layout=layout)
+    fig.show()
 
 # Call the function to plot
-plot_precise_highlighted_spot(df_result)
+plotly_highlighted_spot(df_result)
 
