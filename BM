@@ -13,6 +13,7 @@ def get_spot_data(cross, start, end):
     data_series = TSDB.get_data(cross, start=start, end=end)
     # Convert to DataFrame
     df = pd.DataFrame(data_series, columns=['spot'])
+    df.index = pd.to_datetime(df.index)  # Ensure index is datetime
     df.index.name = 'date'
     return df
 
@@ -45,6 +46,10 @@ def find_top_moves(df, window_size, num_moves, direction):
         # Determine the start and end of the window for this move
         start_idx = max_idx - pd.Timedelta(days=window_size - 1)
         end_idx = max_idx
+
+        # Ensure slicing works by converting indices if necessary
+        start_idx = pd.Timestamp(start_idx)
+        end_idx = pd.Timestamp(end_idx)
 
         # Highlight this period
         df.loc[start_idx:end_idx, 'highlight'] = 1
