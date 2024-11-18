@@ -134,10 +134,18 @@ def plotly_highlighted_spot(df):
 
     layout = go.Layout(
         title="Spot Price with Highlighted Periods",
-        xaxis_title="Date",
-        yaxis_title="Spot Price",
+        xaxis=dict(
+            title="Date",
+            showgrid=False  # Disable grid lines within the plot for x-axis
+        ),
+        yaxis=dict(
+            title="Spot Price",
+            showgrid=False  # Disable grid lines within the plot for y-axis
+        ),
         shapes=shapes,
-        showlegend=True
+        showlegend=True,
+        width=1000,  # Set figure width
+        height=600   # Set figure height
     )
 
     fig = go.Figure(data=[spot_trace], layout=layout)
