@@ -97,7 +97,7 @@ print(df_result.head())  # Display the first few rows of the result
 
 import matplotlib.pyplot as plt
 
-def plot_highlighted_spot(df):
+def plot_precise_highlighted_spot(df):
     # Ensure 'highlight' column is present
     if 'highlight' not in df.columns:
         raise ValueError("DataFrame does not contain a 'highlight' column.")
@@ -107,10 +107,13 @@ def plot_highlighted_spot(df):
 
     # Highlight periods where 'highlight' column is 1
     highlighted_periods = df[df['highlight'] == 1]
-    if not highlighted_periods.empty:
-        for start in highlighted_periods.index:
-            end = start + pd.Timedelta(days=20)  # 21-day window
-            plt.axvspan(start, end, color='orange', alpha=0.3)
+
+    # Plot vertical backgrounds using fill_between for precise highlighting
+    for start in highlighted_periods.index:
+        end = start + pd.Timedelta(days=20)  # Covering a 21-day window
+        plt.axvline(x=start, color='orange', alpha=0.5, linestyle='--', linewidth=0.8)  # Add vertical line at the start
+        plt.axvline(x=end, color='orange', alpha=0.5, linestyle='--', linewidth=0.8)    # Add vertical line at the end
+        plt.fill_betweenx(y=[df['spot'].min(), df['spot'].max()], x1=start, x2=end, color='orange', alpha=0.3)
 
     plt.title('Spot Price with Highlighted Periods')
     plt.xlabel('Date')
@@ -120,5 +123,5 @@ def plot_highlighted_spot(df):
     plt.show()
 
 # Call the function to plot
-plot_highlighted_spot(df_result)
+plot_precise_highlighted_spot(df_result)
 
