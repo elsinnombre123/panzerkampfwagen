@@ -19,48 +19,44 @@ def get_spot_data(cross, start, end):
 
 def calculate_rolling_returns(df, window_size):
     # Calculate rolling returns as a percentage change over the defined window
-    return df['spot'].pct_change(periods=window_size) * 100
+    df['rolling_return'] = df['spot'].pct_change(periods=window_size) * 100
+    return df
 
-def find_top_moves(df, window_size, num_moves, direction):
-    df['highlight'] = 0
-    top_moves = []
+def find_top_non_overlapping_moves(df, window_size, num_moves, direction):
+    df['highlight'] = 0  # Initialize highlight column
+    selected_moves = []
 
-    for _ in range(num_moves):
-        # Filter based on direction: 'Up' for positive, 'Down' for negative moves
-        if direction == 'Up':
-            max_move = df['rolling_return'].max()
-            max_idx = df['rolling_return'].idxmax()
-        elif direction == 'Down':
-            max_move = df['rolling_return'].min()
-            max_idx = df['rolling_return'].idxmin()
-        else:
-            raise ValueError("Invalid direction. Use 'Up' or 'Down'.")
+    # Filter based on direction and sort moves
+    if direction == 'Up':
+        sorted_moves = df.sort_values(by='rolling_return', ascending=False).dropna(subset=['rolling_return'])
+    elif direction == 'Down':
+        sorted_moves = df.sort_values(by='rolling_return', ascending=True).dropna(subset=['rolling_return'])
+    else:
+        raise ValueError("Invalid direction. Use 'Up' or 'Down'.")
 
-        if pd.isna(max_idx):  # Break if there are no valid moves left
+    for idx in sorted_moves.index:
+        # Check if we already have the required number of moves
+        if len(selected_moves) >= num_moves:
             break
 
-        # Convert max_idx to a timestamp if it's not already
-        if not isinstance(max_idx, pd.Timestamp):
-            max_idx = pd.to_datetime(max_idx)
+        # Define the window for this move
+        start_idx = idx - pd.Timedelta(days=window_size - 1)
+        end_idx = idx
 
-        # Determine the start and end of the window for this move
-        start_idx = max_idx - pd.Timedelta(days=window_size - 1)
-        end_idx = max_idx
+        # Check if this window overlaps with any previously selected windows
+        overlap = False
+        for move in selected_moves:
+            move_start, move_end = move[0], move[1]
+            if not (end_idx < move_start or start_idx > move_end):
+                overlap = True
+                break
 
-        # Ensure slicing works by converting indices if necessary
-        start_idx = pd.Timestamp(start_idx)
-        end_idx = pd.Timestamp(end_idx)
+        # If no overlap, select this move
+        if not overlap:
+            df.loc[start_idx:end_idx, 'highlight'] = 1
+            selected_moves.append((start_idx, end_idx, df.loc[idx, 'rolling_return']))
 
-        # Highlight this period
-        df.loc[start_idx:end_idx, 'highlight'] = 1
-
-        # Store this move in the results list
-        top_moves.append((start_idx, end_idx, max_move))
-
-        # Mask out this period by setting the rolling return to NaN
-        df.loc[start_idx:end_idx, 'rolling_return'] = None
-
-    return df, top_moves
+    return df, selected_moves
 
 def main(cross='wmeur', end_date=dt.date.today(), history='10y', num_moves=10, window='1m', direction='Up'):
     # Calculate start date based on the history parameter
@@ -77,13 +73,13 @@ def main(cross='wmeur', end_date=dt.date.today(), history='10y', num_moves=10, w
     window_size = 21 if window == '1m' else 5 if window == '1w' else int(window[:-1])
     
     # Calculate rolling returns
-    df['rolling_return'] = calculate_rolling_returns(df, window_size)
+    df = calculate_rolling_returns(df, window_size)
 
-    # Find top moves and update the highlight column
-    df, top_moves = find_top_moves(df, window_size, num_moves, direction)
+    # Find top non-overlapping moves
+    df, selected_moves = find_top_non_overlapping_moves(df, window_size, num_moves, direction)
 
-    # Return the final DataFrame
-    return df
+    # Ensure we return only relevant columns for visualization
+    return df[['spot', 'rolling_return', 'highlight']], selected_moves
 
 # Parameters you can define
 cross = 'wmeur'  # Asset ticker
@@ -94,7 +90,7 @@ window = '1m'  # Defines the return period (e.g., '1m' for 21 days)
 direction = 'Up'  # 'Up' for positive moves, 'Down' for negative moves
 
 # Example usage with parameters
-df_result = main(cross=cross, end_date=end_date, history=history, num_moves=number_of_biggest_moves, window=window, direction=direction)
+df_result, selected_moves = main(cross=cross, end_date=end_date, history=history, num_moves=number_of_biggest_moves, window=window, direction=direction)
 print(df_result.head())  # Display the first few rows of the result
 
 ---
