@@ -96,3 +96,31 @@ direction = 'Up'  # 'Up' for positive moves, 'Down' for negative moves
 # Example usage with parameters
 df_result = main(cross=cross, end_date=end_date, history=history, num_moves=number_of_biggest_moves, window=window, direction=direction)
 print(df_result.head())  # Display the first few rows of the result
+
+---
+
+import matplotlib.pyplot as plt
+
+def plot_highlighted_spot(df):
+    # Ensure 'highlight' column is present
+    if 'highlight' not in df.columns:
+        raise ValueError("DataFrame does not contain a 'highlight' column.")
+
+    plt.figure(figsize=(12, 6))
+    plt.plot(df.index, df['spot'], label='Spot Price', color='blue')
+    
+    # Highlight periods with the 'highlight' column set to 1
+    highlighted = df[df['highlight'] == 1]
+    plt.fill_between(highlighted.index, df['spot'].min(), df['spot'].max(), 
+                     where=highlighted['highlight'] == 1, color='orange', alpha=0.3, label='Highlighted Periods')
+
+    plt.title('Spot Price with Highlighted Periods')
+    plt.xlabel('Date')
+    plt.ylabel('Spot Price')
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+# Call the function to plot
+plot_highlighted_spot(df_result)
+
