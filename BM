@@ -38,6 +38,10 @@ def find_top_moves(df, window_size, num_moves, direction):
         if pd.isna(max_idx):  # Break if there are no valid moves left
             break
 
+        # Convert max_idx to a timestamp if it's not already
+        if not isinstance(max_idx, pd.Timestamp):
+            max_idx = pd.to_datetime(max_idx)
+
         # Determine the start and end of the window for this move
         start_idx = max_idx - pd.Timedelta(days=window_size - 1)
         end_idx = max_idx
