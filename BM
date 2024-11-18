@@ -1,0 +1,83 @@
+import pandas as pd
+import datetime as dt
+from abc_quant_internal.tsdb import TSDBSymbol, MDAPISymbol, TSDB
+
+def get_spot_data(cross, start, end):
+    # Fetches data using your defined method
+    data_series = TSDB.get_data(cross, start=start, end=end)
+    # Convert to DataFrame
+    df = pd.DataFrame(data_series, columns=['spot'])
+    df.index.name = 'date'
+    return df
+
+def calculate_rolling_returns(df, window_size):
+    # Calculate rolling returns as a percentage change over the defined window
+    return df['spot'].pct_change(periods=window_size) * 100
+
+def find_top_moves(df, window_size, num_moves, direction):
+    df['highlight'] = 0
+    top_moves = []
+
+    for _ in range(num_moves):
+        # Filter based on direction: 'Up' for positive, 'Down' for negative moves
+        if direction == 'Up':
+            max_move = df['rolling_return'].max()
+            max_idx = df['rolling_return'].idxmax()
+        elif direction == 'Down':
+            max_move = df['rolling_return'].min()
+            max_idx = df['rolling_return'].idxmin()
+        else:
+            raise ValueError("Invalid direction. Use 'Up' or 'Down'.")
+
+        if pd.isna(max_idx):  # Break if there are no valid moves left
+            break
+
+        # Determine the start and end of the window for this move
+        start_idx = max_idx - pd.Timedelta(days=window_size - 1)
+        end_idx = max_idx
+
+        # Highlight this period
+        df.loc[start_idx:end_idx, 'highlight'] = 1
+
+        # Store this move in the results list
+        top_moves.append((start_idx, end_idx, max_move))
+
+        # Mask out this period by setting the rolling return to NaN
+        df.loc[start_idx:end_idx, 'rolling_return'] = None
+
+    return df, top_moves
+
+def main(cross='wmeur', end_date=dt.date.today(), history='10y', num_moves=10, window='1m', direction='Up'):
+    # Calculate start date based on the history parameter
+    if history.endswith('y'):
+        years = int(history[:-1])
+        start_date = end_date - pd.DateOffset(years=years)
+    else:
+        raise ValueError("Unsupported history format. Use 'Xy' for years.")
+
+    # Fetch data
+    df = get_spot_data(cross, start_date, end_date)
+
+    # Define window size in days (1m = 21 trading days, 1w = 5 trading days)
+    window_size = 21 if window == '1m' else 5 if window == '1w' else int(window[:-1])
+    
+    # Calculate rolling returns
+    df['rolling_return'] = calculate_rolling_returns(df, window_size)
+
+    # Find top moves and update the highlight column
+    df, top_moves = find_top_moves(df, window_size, num_moves, direction)
+
+    # Return the final DataFrame
+    return df
+
+# Parameters you can define
+cross = 'wmeur'  # Asset ticker
+end_date = dt.date.today()  # Default end date is today
+history = '10y'  # Start date is 10 years before the end date
+number_of_biggest_moves = 10  # Number of largest moves to find
+window = '1m'  # Defines the return period (e.g., '1m' for 21 days)
+direction = 'Up'  # 'Up' for positive moves, 'Down' for negative moves
+
+# Example usage with parameters
+df_result = main(cross=cross, end_date=end_date, history=history, num_moves=number_of_biggest_moves, window=window, direction=direction)
+print(df_result.head())  # Display the first few rows of the result
