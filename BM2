@@ -157,51 +157,57 @@ class BigMovesComponent(AnalyticsComponent):
                                precision=self.precision)
 
     def get_visualization(self) -> go.Figure:
-        df = self.engine.process()
+    df = self.engine.process()
 
-        # Customizable colors for the visualization
-        spot_color = 'rgb(0, 123, 255)'  # Spot line color
-        highlight_color = 'rgba(255, 0, 0, 0.3)'  # Highlighted region color
+    # Customizable colors for the visualization
+    spot_color = 'rgb(0, 123, 255)'  # Spot line color
+    highlight_color = 'rgba(255, 0, 0, 0.3)'  # Highlighted region color
 
-        fig = go.Figure()
+    fig = go.Figure()
 
-        # Plot the spot line
-        fig.add_trace(go.Scatter(
-            x=df.index,
-            y=df['spot'],
-            mode='lines',
-            name='Spot Price',
-            line=dict(color=spot_color)
-        ))
+    # Plot the spot line
+    fig.add_trace(go.Scatter(
+        x=df.index,
+        y=df['spot'],
+        mode='lines',
+        name='Spot Price',
+        line=dict(color=spot_color)
+    ))
 
-        # Highlight the selected regions
-        highlighted_periods = df[df['highlight'] == 1].index
-        if not highlighted_periods.empty:
-            for start in highlighted_periods:
-                end = start + pd.Timedelta(days=20)  # Adjust as needed for the window size
+    # Group contiguous highlighted regions
+    highlighted_periods = df[df['highlight'] == 1]
+    if not highlighted_periods.empty:
+        start_idx = None
+        for idx in highlighted_periods.index:
+            if start_idx is None:
+                start_idx = idx  # Start of a new highlighted region
+            if idx + pd.Timedelta(days=1) not in highlighted_periods.index:
+                # End of the current highlighted region
                 fig.add_shape(
                     type="rect",
-                    x0=start,
-                    x1=end,
+                    x0=start_idx,
+                    x1=idx,
                     y0=df['spot'].min(),
                     y1=df['spot'].max(),
                     fillcolor=highlight_color,
-                    opacity=0.2,
+                    opacity=0.3,
                     layer="below",
                     line_width=0,
                 )
+                start_idx = None  # Reset for the next region
 
-        fig.update_layout(
-            title='Spot Price with Highlighted Big Moves',
-            xaxis_title='Date',
-            yaxis_title='Spot Price',
-            plot_bgcolor='white',
-            xaxis=dict(showgrid=False),
-            yaxis=dict(showgrid=False),
-            showlegend=True
-        )
+    fig.update_layout(
+        title='Spot Price with Highlighted Big Moves',
+        xaxis_title='Date',
+        yaxis_title='Spot Price',
+        plot_bgcolor='white',
+        xaxis=dict(showgrid=False),
+        yaxis=dict(showgrid=False),
+        showlegend=True
+    )
 
-        return fig
+    return fig
+
 
     @staticmethod
     def get_default_params() -> Dict[str, object]:
