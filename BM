@@ -95,14 +95,17 @@ class BigMoves(AnalyticsEngine):
             if len(selected_moves) >= self.num_moves:
                 break
 
-            # Define the window for this move
-            start_idx = idx
-            end_idx = start_idx + pd.Timedelta(days=window_size - 1)
+            # Define the window for this move using trading days
+            try:
+                window_indices = df.loc[idx:].index[:window_size]  # Select next 'window_size' trading days
+            except IndexError:
+                continue  # If there aren't enough trading days left, skip
 
             # Check for overlap with existing moves
-            if not any(start <= end_idx and end >= start_idx for start, end, _ in selected_moves):
-                df.loc[start_idx:end_idx, 'highlight'] = 1
-                selected_moves.append((start_idx, end_idx, df.loc[idx, 'rolling_return']))
+            overlap = any(any(start <= date <= end for date in window_indices) for start, end, _ in selected_moves)
+            if not overlap:
+                df.loc[window_indices, 'highlight'] = 1
+                selected_moves.append((window_indices[0], window_indices[-1], df.loc[idx, 'rolling_return']))
 
         return df, selected_moves
 
