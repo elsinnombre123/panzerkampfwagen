@@ -57,12 +57,18 @@ class BigMoves(AnalyticsEngine):
 
     def get_last_available_date(self):
         # Fetch spot data with a wide date range to determine the last available date
-        data_series = TSDB.get_data(self.cross.value, start='2000-01-01', end=dt.date.today())
+        data_series = TSDB.get_data(self.cross.value, start=dt.date(2000, 1, 1), end=dt.date.today())
         df = pd.DataFrame(data_series)
         df.index = pd.to_datetime(df.index)
-        return df.index.max().date()  # Return the latest date available
+        return df.index.max().date()  # Return the latest date available as a date object
 
     def get_spot_data(self, cross, start, end):
+        # Ensure start and end are of type dt.date
+        if isinstance(start, dt.datetime):
+            start = start.date()
+        if isinstance(end, dt.datetime):
+            end = end.date()
+
         # Fetch spot data from TSDB
         data_series = TSDB.get_data(cross.value, start=start, end=end)
         df = pd.DataFrame(data_series, columns=['spot'])
