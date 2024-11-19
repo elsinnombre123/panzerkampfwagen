@@ -7,7 +7,6 @@ from abc_quant_internal.tsdb import TSDB
 from abc_quant_analytics.interfaces.analytics_engine_interface import AnalyticsEngine
 from abc_quant_analytics.interfaces.analytics_component_interface import AnalyticsComponent, MetaDataKeys
 from abc_quant_analytics.visualization_params import VisualizationParameters
-from abc_quant_analytics.dataviz.plotly.plotlyviz import PlotlyViz
 
 # Enum Classes for Parameters
 class Cross(Enum):
@@ -62,20 +61,17 @@ class BigMoves(AnalyticsEngine):
             self.end_date = self.get_last_available_date()
 
     def get_last_available_date(self):
-        # Fetch spot data with a wide date range to determine the last available date
         data_series = TSDB.get_data(self.cross.value, start=dt.date(2000, 1, 1), end=dt.date.today())
         df = pd.DataFrame(data_series)
         df.index = pd.to_datetime(df.index)
         return df.index.max().date()  # Return the latest date available as a date object
 
     def get_spot_data(self, cross, start, end):
-        # Ensure start and end are of type dt.date
         if isinstance(start, dt.datetime):
             start = start.date()
         if isinstance(end, dt.datetime):
             end = end.date()
 
-        # Fetch spot data from TSDB
         data_series = TSDB.get_data(cross.value, start=start, end=end)
         df = pd.DataFrame(data_series, columns=['spot'])
         df.index = pd.to_datetime(df.index)  # Ensure datetime index
@@ -83,7 +79,6 @@ class BigMoves(AnalyticsEngine):
         return df
 
     def calculate_resampled_returns(self, df, window_size):
-        # Calculate rolling returns over the specified window size
         resampled = df['spot'].rolling(window=window_size, min_periods=1).apply(
             lambda x: (x[-1] / x[0] - 1) * 100 if len(x) > 1 else 0, raw=True
         )
@@ -91,7 +86,6 @@ class BigMoves(AnalyticsEngine):
         return df
 
     def find_top_moves(self, df):
-        # Rank and select top non-overlapping moves based on specified direction
         df['highlight'] = 0
         sorted_moves = df.sort_values(by='rolling_return', ascending=(self.direction == Direction.DOWN)).dropna(subset=['rolling_return'])
         selected_moves = []
@@ -101,13 +95,11 @@ class BigMoves(AnalyticsEngine):
             if len(selected_moves) >= self.num_moves:
                 break
 
-            # Correct window logic: Highlight preceding 'window_size' trading days
             try:
-                window_indices = df.loc[:idx].index[-window_size:]  # Select preceding 'window_size' trading days
+                window_indices = df.loc[:idx].index[-window_size:]
             except IndexError:
-                continue  # If there aren't enough trading days, skip
+                continue
 
-            # Check for overlap with existing moves
             overlap = any(any(start <= date <= end for date in window_indices) for start, end, _ in selected_moves)
             if not overlap:
                 df.loc[window_indices, 'highlight'] = 1
@@ -116,7 +108,6 @@ class BigMoves(AnalyticsEngine):
         return df, selected_moves
 
     def get_window_size(self):
-        # Convert window enum to days
         if self.window == Window.T1W:
             return 5
         elif self.window == Window.T2W:
@@ -131,24 +122,19 @@ class BigMoves(AnalyticsEngine):
             raise ValueError("Unsupported window size.")
 
     def process(self) -> pd.DataFrame:
-        # Calculate start date based on history
         years = int(self.history.value[:-1])
         start_date = self.end_date - dt.timedelta(days=years * 365)
 
-        # Fetch spot data
         df = self.get_spot_data(self.cross, start_date, self.end_date)
 
-        # Resample data based on the specified window
         window_size = self.get_window_size()
         df = self.calculate_resampled_returns(df, window_size)
 
-        # Find top moves
         df, _ = self.find_top_moves(df)
 
-        # Return formatted DataFrame
         return df[['spot', 'rolling_return', 'highlight']].round(self.precision)
 
-# Component Class
+# Component Class with Normal Plotly Visualization
 class BigMovesComponent(AnalyticsComponent):
     def __init__(self,
                  cross: Union[Cross, None] = Cross.EURUSD,
@@ -170,16 +156,15 @@ class BigMovesComponent(AnalyticsComponent):
                                num_moves=self.num_moves, window=self.window, direction=self.direction,
                                precision=self.precision)
 
-    def get_visualization(self) -> PlotlyViz:
+    def get_visualization(self):
         df = self.engine.process()
-        
-        # Spot line color and highlight color (customizable)
-        spot_color = 'rgb(0, 123, 255)'  # Example RGB for spot line
-        highlight_color = 'rgba(255, 0, 0, 0.3)'  # Example RGBA for highlight
-        
+
+        spot_color = 'rgb(0, 123, 255)'  # Color for the spot line
+        highlight_color = 'rgba(255, 0, 0, 0.3)'  # Color for the highlighted regions
+
         fig = go.Figure()
 
-        # Add spot line
+        # Plot the spot line
         fig.add_trace(go.Scatter(
             x=df.index,
             y=df['spot'],
@@ -188,56 +173,43 @@ class BigMovesComponent(AnalyticsComponent):
             line=dict(color=spot_color)
         ))
 
-        # Add highlighted areas
-        highlighted_periods = df[df['highlight'] == 1]
-        for start in highlighted_periods.index:
-            end = start + pd.Timedelta(days=20)  # Covering 21 trading days if needed (adjust accordingly)
-            fig.add_shape(
-                type="rect",
-                xref="x",
-                yref="paper",
-                x0=start,
-                x1=end,
-                y0=0,
-                y1=1,
-                fillcolor=highlight_color,
-                opacity=0.3,
-                layer="below",
-                line_width=0,
-            )
+        # Highlight the selected regions
+        highlighted_periods = df[df['highlight'] == 1].index
+        if not highlighted_periods.empty:
+            for start in highlighted_periods:
+                end = start + pd.Timedelta(days=20)
+                fig.add_shape(
+                    type="rect",
+                    x0=start,
+                    x1=end,
+                    y0=df['spot'].min(),
+                    y1=df['spot'].max(),
+                    fillcolor=highlight_color,
+                    opacity=0.2,
+                    layer="below",
+                    line_width=0,
+                )
 
         fig.update_layout(
             title='Spot Price with Highlighted Big Moves',
             xaxis_title='Date',
             yaxis_title='Spot Price',
-            showlegend=True,
-            plot_bgcolor='white',  # White background
+            plot_bgcolor='white',
             xaxis=dict(showgrid=False),
-            yaxis=dict(showgrid=False)
+            yaxis=dict(showgrid=False),
+            showlegend=True
         )
 
-        return PlotlyViz(fig)
+        fig.show()
 
-    @staticmethod
-    def get_default_params() -> Dict[str, object]:
-        return {'cross': Cross.EURUSD}  # Set your default cross
-
-    @staticmethod
-    def get_visualization_parameters() -> VisualizationParameters:
-        return VisualizationParameters(show_legend=True, precision=2)
-
-    @property
-    def metadata(self) -> Dict[str, str]:
-        return {MetaDataKeys.Title: f"Big Moves Analysis for {self.cross}"}
-
-# Instantiate and show the component (example usage)
+# Instantiate and show the component
 component = BigMovesComponent(
     cross=Cross.EURUSD,
-    end_date=None,  # Defaults to last available date if None
+    end_date=None,
     history=History.T10Y,
     num_moves=10,
     window=Window.T1M,
     direction=Direction.UP,
     precision=4
 )
-component.get_visualization().show()
+component.get_visualization()
