@@ -43,7 +43,7 @@ class BigMoves(AnalyticsEngine):
     def __init__(self,
                  cross: Cross = Cross.EURUSD,
                  end_date: Union[dt.date, None] = None,
-                 history: History = History.T10Y,
+                 history: Union[History, str] = History.T10Y,
                  num_moves: int = 10,
                  window: Window = Window.T1M,
                  direction: Direction = Direction.UP,
@@ -51,7 +51,7 @@ class BigMoves(AnalyticsEngine):
         super().__init__()
         self.cross = cross
         self.end_date = end_date
-        self.history = history
+        self.history = History[history] if isinstance(history, str) else history
         self.num_moves = min(num_moves, 20)  # Ensure maximum of 20 moves
         self.window = window
         self.direction = direction
@@ -162,10 +162,10 @@ class BigMovesComponent(AnalyticsComponent):
         # Convert cross to Cross enum if it's a string
         self.cross = Cross[cross] if isinstance(cross, str) else cross or self.get_default_params()['cross']
         self.end_date = end_date
-        self.history = history
+        self.history = History[history] if isinstance(history, str) else history
         self.num_moves = num_moves
-        self.window = window
-        self.direction = direction
+        self.window = Window[window] if isinstance(window, str) else window
+        self.direction = Direction[direction] if isinstance(direction, str) else direction
         self.precision = precision
         self.engine = BigMoves(cross=self.cross, end_date=self.end_date, history=self.history,
                                num_moves=self.num_moves, window=self.window, direction=self.direction,
