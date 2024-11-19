@@ -145,7 +145,7 @@ class BigMovesComponent(AnalyticsComponent):
                  direction: Union[Direction, None] = Direction.UP,
                  precision: int = 4):
         super().__init__()
-        self.cross = cross
+        self.cross = cross or self.get_default_params()['cross']
         self.end_date = end_date
         self.history = history
         self.num_moves = num_moves
@@ -156,11 +156,12 @@ class BigMovesComponent(AnalyticsComponent):
                                num_moves=self.num_moves, window=self.window, direction=self.direction,
                                precision=self.precision)
 
-    def get_visualization(self):
+    def get_visualization(self) -> go.Figure:
         df = self.engine.process()
 
-        spot_color = 'rgb(0, 123, 255)'  # Color for the spot line
-        highlight_color = 'rgba(255, 0, 0, 0.3)'  # Color for the highlighted regions
+        # Customizable colors for the visualization
+        spot_color = 'rgb(0, 123, 255)'  # Spot line color
+        highlight_color = 'rgba(255, 0, 0, 0.3)'  # Highlighted region color
 
         fig = go.Figure()
 
@@ -177,7 +178,7 @@ class BigMovesComponent(AnalyticsComponent):
         highlighted_periods = df[df['highlight'] == 1].index
         if not highlighted_periods.empty:
             for start in highlighted_periods:
-                end = start + pd.Timedelta(days=20)
+                end = start + pd.Timedelta(days=20)  # Adjust as needed for the window size
                 fig.add_shape(
                     type="rect",
                     x0=start,
@@ -200,7 +201,20 @@ class BigMovesComponent(AnalyticsComponent):
             showlegend=True
         )
 
-        fig.show()
+        return fig
+
+    @staticmethod
+    def get_default_params() -> Dict[str, object]:
+        return {'cross': Cross.EURUSD}
+
+    @staticmethod
+    def get_visualization_parameters() -> VisualizationParameters:
+        return VisualizationParameters(show_legend=True, precision=2)
+
+    @property
+    def metadata(self) -> Dict[str, str]:
+        return {MetaDataKeys.Title: f"Big Moves Analysis for {self.cross}"}
+
 
 # Instantiate and show the component
 component = BigMovesComponent(
