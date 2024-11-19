@@ -154,3 +154,105 @@ big_moves = BigMoves(
 )
 result_df = big_moves.process()
 print(result_df.head())
+
+---
+
+import pandas as pd
+import plotly.graph_objs as go
+from typing import Union, Dict
+from abc_quant_analytics.interfaces.analytics_component_interface import AnalyticsComponent
+from abc_quant_analytics.visualization_params import VisualizationParameters
+from abc_quant_analytics.dataviz.plotly.plotlyviz import PlotlyViz
+from abc_quant_analytics.interfaces.analytics_engine_interface import MetaDataKeys
+
+class BigMovesComponent(AnalyticsComponent):
+    def __init__(self,
+                 cross: Union[str, None] = None,
+                 end_date: Union[str, None] = None,
+                 history: Union[str, None] = None,
+                 num_moves: int = 10,
+                 window: Union[str, None] = None,
+                 direction: Union[str, None] = 'Up',
+                 precision: int = 4):
+        super().__init__()
+        self.cross = cross or self.get_default_params()['cross']
+        self.end_date = end_date
+        self.history = history
+        self.num_moves = num_moves
+        self.window = window
+        self.direction = direction
+        self.precision = precision
+        self.engine = BigMoves(cross=self.cross, end_date=self.end_date, history=self.history,
+                               num_moves=self.num_moves, window=self.window, direction=self.direction,
+                               precision=self.precision)
+
+    def get_visualization(self) -> PlotlyViz:
+        df = self.engine.process()
+        
+        # Spot line color and highlight color (customizable)
+        spot_color = 'rgb(0, 123, 255)'  # Example RGB for spot line
+        highlight_color = 'rgba(255, 0, 0, 0.3)'  # Example RGBA for highlight
+        
+        fig = go.Figure()
+
+        # Add spot line
+        fig.add_trace(go.Scatter(
+            x=df.index,
+            y=df['spot'],
+            mode='lines',
+            name='Spot Price',
+            line=dict(color=spot_color)
+        ))
+
+        # Add highlighted areas
+        highlighted_periods = df[df['highlight'] == 1]
+        for start in highlighted_periods.index:
+            end = start + pd.Timedelta(days=20)  # Covering 21 trading days if needed (adjust accordingly)
+            fig.add_shape(
+                type="rect",
+                xref="x",
+                yref="paper",
+                x0=start,
+                x1=end,
+                y0=0,
+                y1=1,
+                fillcolor=highlight_color,
+                opacity=0.3,
+                layer="below",
+                line_width=0,
+            )
+
+        fig.update_layout(
+            title='Spot Price with Highlighted Big Moves',
+            xaxis_title='Date',
+            yaxis_title='Spot Price',
+            showlegend=True,
+            plot_bgcolor='white',  # White background
+            xaxis=dict(showgrid=False),
+            yaxis=dict(showgrid=False)
+        )
+
+        return PlotlyViz(fig)
+
+    @staticmethod
+    def get_default_params() -> Dict[str, object]:
+        return {'cross': 'EURUSD'}  # Set your default cross
+
+    def get_visualization_parameters() -> VisualizationParameters:
+        return VisualizationParameters(show_legend=True, precision=2)
+
+    @property
+    def metadata(self) -> Dict[str, str]:
+        return {MetaDataKeys.Title: f"Big Moves Analysis for {self.cross}"}
+
+# Instantiate and show the component (example usage)
+component = BigMovesComponent(
+    cross='EURUSD',
+    end_date=None,  # Defaults to last available date if None
+    history='10y',
+    num_moves=10,
+    window='1m',
+    direction='Up',
+    precision=4
+)
+component.get_visualization().show()
