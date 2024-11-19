@@ -113,23 +113,45 @@ class BigMovesComponent(AnalyticsComponent):
         )
 
     def get_visualization(self) -> go.Figure:
-        df = self.engine.process()
-        spot_data = self.engine.data.reset_index()
-
-        # Create a plotly figure
+        df = self.engine.process()  # Dataframe with 'StartDate' and 'EndDate' for each big move
+        spot_data = self.engine.data.reset_index()  # Assuming engine.data provides the raw spot data
+    
+        # Create a Plotly figure
         fig = go.Figure()
-
+    
         # Plot historical spot data
-        fig.add_trace(go.Scatter(x=spot_data['Date'], y=spot_data['Spot'], mode='lines', name='Spot Data',
-                                 line=dict(color='blue')))
-
-        # Highlight big moves
-        for _, row in df.iterrows():
-            fig.add_vrect(
-                x0=row['StartDate'], x1=row['EndDate'],
-                fillcolor="red", opacity=0.3, layer="below", line_width=0
-            )
-
+        fig.add_trace(go.Scatter(
+            x=spot_data['Date'], 
+            y=spot_data['Spot'], 
+            mode='lines', 
+            name='Spot Data',
+            line=dict(color='blue')
+        ))
+    
+        # Highlight contiguous periods where highlight == 1
+        highlighted_periods = self.engine.data[self.engine.data['highlight'] == 1]
+        if not highlighted_periods.empty:
+            start_idx = None
+            for i, date in enumerate(highlighted_periods.index):
+                if start_idx is None:
+                    start_idx = date  # Start of a highlighted window
+                
+                # Check if next date is not contiguous or if it's the last point in the series
+                is_last = (i == len(highlighted_periods.index) - 1)
+                next_date_is_not_contiguous = (not is_last and highlighted_periods.index[i + 1] != date + pd.Timedelta(days=1))
+    
+                if is_last or next_date_is_not_contiguous:
+                    end_idx = date  # End of the highlighted window
+                    fig.add_vrect(
+                        x0=start_idx,
+                        x1=end_idx,
+                        fillcolor="red",
+                        opacity=0.3,
+                        layer="below",
+                        line_width=0
+                    )
+                    start_idx = None  # Reset for the next window
+    
         # Set layout for the figure
         fig.update_layout(
             title=dict(text=f"Big Moves for {self.cross.name}", x=0.5),
@@ -137,10 +159,11 @@ class BigMovesComponent(AnalyticsComponent):
             yaxis_title="Spot",
             width=1000,
             height=600,
-            xaxis_showgrid=False,
-            yaxis_showgrid=False
+            xaxis=dict(showgrid=False),
+            yaxis=dict(showgrid=False)
         )
         return fig
+
 
     def get_visualization_parameters(self):
         # Minimal implementation to satisfy abstract method
