@@ -161,7 +161,7 @@ class BigMovesComponent(AnalyticsComponent):
     
         # Customizable colors for the visualization
         spot_color = 'rgb(0, 123, 255)'  # Spot line color
-        highlight_color = 'rgba(255, 0, 0, 0.3)'  # Highlighted region color
+        highlight_color = 'rgba(255, 0, 0, 0.3)'  # Highlighted region color (adjust opacity as needed)
     
         fig = go.Figure()
     
@@ -174,24 +174,28 @@ class BigMovesComponent(AnalyticsComponent):
             line=dict(color=spot_color)
         ))
     
-        # Highlight the windows that correspond to top moves
+        # Add highlights using Scatter
         highlighted_periods = df[df['highlight'] == 1]
-        window_size = self.engine.get_window_size()  # Get the size of the window used for the top moves
-    
         if not highlighted_periods.empty:
-            for end_date in highlighted_periods.index:
-                start_date = end_date - pd.Timedelta(days=window_size - 1)  # Calculate start date of the window
-                fig.add_shape(
-                    type="rect",
-                    x0=start_date,
-                    x1=end_date,
-                    y0=df['spot'].min(),
-                    y1=df['spot'].max(),
-                    fillcolor=highlight_color,
-                    opacity=0.3,
-                    layer="below",
-                    line_width=0,
-                )
+            start_idx = None
+            for idx in highlighted_periods.index:
+                if start_idx is None:
+                    start_idx = idx  # Start of a highlighted region
+                if idx + pd.Timedelta(days=1) not in highlighted_periods.index:
+                    # End of the current highlighted region
+                    end_idx = idx
+                    # Create a filled scatter trace for shading
+                    fig.add_trace(go.Scatter(
+                        x=[start_idx, end_idx, end_idx, start_idx],
+                        y=[df['spot'].min(), df['spot'].min(), df['spot'].max(), df['spot'].max()],
+                        fill='toself',
+                        fillcolor=highlight_color,
+                        line=dict(width=0),  # No border for the shaded area
+                        mode='lines',
+                        name='Highlighted Region',
+                        opacity=0.3  # Adjust opacity as needed
+                    ))
+                    start_idx = None  # Reset for the next region
     
         fig.update_layout(
             title='Spot Price with Highlighted Big Moves',
@@ -204,6 +208,7 @@ class BigMovesComponent(AnalyticsComponent):
         )
     
         return fig
+
 
 
 
