@@ -238,6 +238,7 @@ class BigMovesComponent(AnalyticsComponent):
     def get_default_params() -> Dict[str, object]:
         return {'cross': 'EURUSD'}  # Set your default cross
 
+    @staticmethod
     def get_visualization_parameters() -> VisualizationParameters:
         return VisualizationParameters(show_legend=True, precision=2)
 
@@ -256,3 +257,4 @@ component = BigMovesComponent(
     precision=4
 )
 component.get_visualization().show()
+
