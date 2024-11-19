@@ -38,15 +38,6 @@ class Direction(Enum):
     UP = 'Up'
     DOWN = 'Down'
 
-# Utility function to convert strings to Enums
-def convert_to_enum(enum_class, value):
-    if isinstance(value, str):
-        try:
-            return enum_class[value]
-        except KeyError:
-            raise ValueError(f"Invalid value '{value}' for enum {enum_class.__name__}. Expected one of: {[e.name for e in enum_class]}")
-    return value
-
 # Engine Class
 class BigMoves(AnalyticsEngine):
     def __init__(self,
@@ -160,21 +151,20 @@ class BigMoves(AnalyticsEngine):
 # Component Class
 class BigMovesComponent(AnalyticsComponent):
     def __init__(self,
-                 cross: Union[str, Cross] = Cross.EURUSD,
+                 cross: Union[Cross, None] = Cross.EURUSD,
                  end_date: Union[str, None] = None,
-                 history: Union[str, History] = History.T10Y,
+                 history: Union[History, None] = History.T10Y,
                  num_moves: int = 10,
-                 window: Union[str, Window] = Window.T1M,
-                 direction: Union[str, Direction] = Direction.UP,
+                 window: Union[Window, None] = Window.T1M,
+                 direction: Union[Direction, None] = Direction.UP,
                  precision: int = 4):
         super().__init__()
-        # Convert string parameters to enums if needed
-        self.cross = convert_to_enum(Cross, cross)
+        self.cross = cross
         self.end_date = end_date
-        self.history = convert_to_enum(History, history)
+        self.history = history
         self.num_moves = num_moves
-        self.window = convert_to_enum(Window, window)
-        self.direction = convert_to_enum(Direction, direction)
+        self.window = window
+        self.direction = direction
         self.precision = precision
         self.engine = BigMoves(cross=self.cross, end_date=self.end_date, history=self.history,
                                num_moves=self.num_moves, window=self.window, direction=self.direction,
@@ -242,12 +232,12 @@ class BigMovesComponent(AnalyticsComponent):
 
 # Instantiate and show the component (example usage)
 component = BigMovesComponent(
-    cross='EURUSD',
+    cross=Cross.EURUSD,
     end_date=None,  # Defaults to last available date if None
-    history='10y',
+    history=History.T10Y,
     num_moves=10,
-    window='1m',
-    direction='Up',
+    window=Window.T1M,
+    direction=Direction.UP,
     precision=4
 )
 component.get_visualization().show()
