@@ -77,7 +77,7 @@ class BigMoves(AnalyticsEngine):
         return df
 
     def calculate_resampled_returns(self, df, window_size):
-        # Resample data based on window size
+        # Calculate rolling returns over the specified window size
         resampled = df['spot'].rolling(window=window_size, min_periods=1).apply(
             lambda x: (x[-1] / x[0] - 1) * 100 if len(x) > 1 else 0, raw=True
         )
@@ -95,11 +95,11 @@ class BigMoves(AnalyticsEngine):
             if len(selected_moves) >= self.num_moves:
                 break
 
-            # Define the window for this move using trading days
+            # Correct window logic: Highlight preceding 'window_size' trading days
             try:
-                window_indices = df.loc[idx:].index[:window_size]  # Select next 'window_size' trading days
+                window_indices = df.loc[:idx].index[-window_size:]  # Select preceding 'window_size' trading days
             except IndexError:
-                continue  # If there aren't enough trading days left, skip
+                continue  # If there aren't enough trading days, skip
 
             # Check for overlap with existing moves
             overlap = any(any(start <= date <= end for date in window_indices) for start, end, _ in selected_moves)
