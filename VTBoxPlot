@@ -1,0 +1,98 @@
+from abc_quant_internal.tsdb import TSDB
+import datetime as dt
+import pandas as pd
+import matplotlib.pyplot as plt
+import itertools
+
+# Function to pull data and compute volatility ratios
+def get_volatility_ratios(ccy_list, tenor1, tenor2, history='1y', end_date=None):
+    # Set up the date range
+    if end_date is None:
+        end_date = dt.date.today()  # Ensure this is a datetime.date object
+    years = int(history[0])
+    start_date = (end_date - pd.DateOffset(years=years)).date()  # Convert to datetime.date
+
+    # Helper function to derive tickers
+    def derive_ticker(ccy, tenor):
+        return f"{ccy[3:].lower()}{ccy[:3].lower()}{tenor}s"
+
+    # Pull data for all tickers
+    data_dict = {}
+    for ccy in ccy_list:
+        for tenor in [tenor1, tenor2]:
+            ticker = derive_ticker(ccy, tenor)
+            data_dict[ticker] = TSDB.get_data(ticker, start=start_date, end=end_date)
+
+    # Compute the ratio and prepare the DataFrame
+    results = {}
+    for ccy in ccy_list:
+        ticker1 = derive_ticker(ccy, tenor1)
+        ticker2 = derive_ticker(ccy, tenor2)
+        ratio_series = data_dict[ticker1] / data_dict[ticker2]
+        results[ccy] = ratio_series
+
+    ratio_df = pd.DataFrame(results)
+    return ratio_df
+
+# Function to plot volatility ratios
+def plot_volatility_ratios(ratio_df, ccy_list, tenor1, tenor2, colors=None):
+    # Calculate the latest values and percentiles
+    latest_values = ratio_df.iloc[-1]
+    percentiles = ratio_df.rank(pct=True).iloc[-1]
+
+    # Set up the colors
+    if colors is None:
+        colors = [(255, 0, 0), (0, 255, 0), (0, 0, 255)]  # Default to red, green, blue
+    color_cycle = itertools.cycle(colors)  # Cycle through the colors
+
+    # Convert RGB values to Matplotlib-compatible format (0-1 range)
+    normalized_colors = [(r / 255, g / 255, b / 255) for r, g, b in colors]
+    color_map = {ccy: next(itertools.cycle(normalized_colors)) for ccy in ccy_list}
+
+    # Plot boxplot and annotate
+    fig, ax = plt.subplots(figsize=(12, 8))
+    boxprops = dict(patch_artist=True)
+    ratio_df.boxplot(ax=ax, vert=True, boxprops=boxprops)
+
+    # Highlight the latest value on the boxplot
+    for i, ccy in enumerate(ccy_list):
+        color = color_map[ccy]
+        latest_value = latest_values[ccy]
+        ax.scatter(i + 1, latest_value, color=color, label=f'{ccy} Latest Value')
+
+    # Add annotations for the percentiles
+    for i, ccy in enumerate(ccy_list):
+        latest_value = latest_values[ccy]
+        percentile = percentiles[ccy]
+        ax.text(i + 1, latest_value, f'{percentile:.2%}', 
+                ha='center', va='bottom', fontsize=9, color=color_map[ccy])
+
+    # Add a title, byline, and legend
+    title = f"Tenor Ratio Analysis ({tenor1}/{tenor2})"
+    byline = "Source: TSDB | Author: Your Name"
+    ax.set_title(title, fontsize=16)
+    fig.text(0.5, 0.02, byline, ha='center', fontsize=10)
+    ax.legend(loc='upper right')
+
+    # Show the plot
+    plt.tight_layout()
+    plt.show()
+
+# Example usage:
+ccy_list = ['EURUSD', 'USDJPY', 'GBPUSD', 'AUDUSD', 'USDCAD', 'NZDUSD']
+tenor1 = '1m'
+tenor2 = '3m'
+colors = [
+    (255, 99, 71),   # Tomato
+    (135, 206, 235), # Sky Blue
+    (144, 238, 144), # Light Green
+    (255, 215, 0),   # Gold
+    (238, 130, 238), # Violet
+    (70, 130, 180)   # Steel Blue
+]
+
+# Step 1: Get the data
+ratio_df = get_volatility_ratios(ccy_list, tenor1, tenor2, history='1y')
+
+# Step 2: Plot the data
+plot_volatility_ratios(ratio_df, ccy_list, tenor1, tenor2, colors=colors)
