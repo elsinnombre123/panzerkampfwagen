@@ -171,15 +171,18 @@ class BigMovesComponent(AnalyticsComponent):
             line=dict(color='blue')
         ))
     
-        # Highlight contiguous periods where highlight == 1
+        # Highlight contiguous periods based on start and end windows
         highlighted_periods = df[df['highlight'] == 1]
         if not highlighted_periods.empty:
             start_idx = highlighted_periods.index[0]
-            for i in range(1, len(highlighted_periods)):
-                # Check if the current index is contiguous with the previous one
-                if highlighted_periods.index[i] != highlighted_periods.index[i - 1] + pd.Timedelta(days=1):
-                    # End of a contiguous block
-                    end_idx = highlighted_periods.index[i - 1]
+            end_idx = start_idx
+            for date in highlighted_periods.index[1:]:
+                # Check if the date is contiguous with the previous one
+                if date == end_idx + pd.Timedelta(days=1):
+                    # Extend the end of the highlighted window
+                    end_idx = date
+                else:
+                    # Add a rectangle for the completed window
                     fig.add_shape(
                         type="rect",
                         xref="x",
@@ -193,10 +196,10 @@ class BigMovesComponent(AnalyticsComponent):
                         layer="below",
                         line_width=0
                     )
-                    # Start a new block
-                    start_idx = highlighted_periods.index[i]
-            # Add the final block
-            end_idx = highlighted_periods.index[-1]
+                    # Start a new window
+                    start_idx = date
+                    end_idx = date
+            # Add the final window
             fig.add_shape(
                 type="rect",
                 xref="x",
@@ -222,6 +225,7 @@ class BigMovesComponent(AnalyticsComponent):
             yaxis=dict(showgrid=False)
         )
         return fig
+
 
 
     @staticmethod
