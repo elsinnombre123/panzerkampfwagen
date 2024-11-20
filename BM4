@@ -1,0 +1,230 @@
+import pandas as pd
+import datetime as dt
+from enum import Enum
+from typing import Union, Dict
+import plotly.graph_objs as go
+from abc_quant_internal.tsdb import TSDB
+from abc_quant_analytics.interfaces.analytics_engine_interface import AnalyticsEngine
+from abc_quant_analytics.interfaces.analytics_component_interface import AnalyticsComponent, MetaDataKeys
+from abc_quant_analytics.visualization_params import VisualizationParameters
+
+# Enum Classes for Parameters
+class Cross(Enum):
+    EURUSD = 'wmeur'
+    USDJPY = 'wmjpy'
+    GBPUSD = 'wmgbp'
+
+class History(Enum):
+    T1Y = '1y'
+    T2Y = '2y'
+    T3Y = '3y'
+    T4Y = '4y'
+    T5Y = '5y'
+    T10Y = '10y'
+    T15Y = '15y'
+    T20Y = '20y'
+    T25Y = '25y'
+    T30Y = '30y'
+
+class Window(Enum):
+    T1W = '1w'
+    T2W = '2w'
+    T1M = '1m'
+    T2M = '2m'
+    T3M = '3m'
+
+class Direction(Enum):
+    UP = 'Up'
+    DOWN = 'Down'
+
+# Engine Class
+class BigMoves(AnalyticsEngine):
+    def __init__(self,
+                 cross: Cross = Cross.EURUSD,
+                 end_date: Union[dt.date, None] = None,
+                 history: History = History.T10Y,
+                 num_moves: int = 10,
+                 window: Window = Window.T1M,
+                 direction: Direction = Direction.UP,
+                 precision: int = 4):
+        super().__init__()
+        self.cross = cross
+        self.end_date = end_date
+        self.history = history
+        self.num_moves = min(num_moves, 20)  # Ensure maximum of 20 moves
+        self.window = window
+        self.direction = direction
+        self.precision = precision
+
+        # Set end_date to the last available date if not provided
+        if self.end_date is None:
+            self.end_date = self.get_last_available_date()
+
+    def get_last_available_date(self):
+        data_series = TSDB.get_data(self.cross.value, start=dt.date(2000, 1, 1), end=dt.date.today())
+        df = pd.DataFrame(data_series)
+        df.index = pd.to_datetime(df.index)
+        return df.index.max().date()  # Return the latest date available as a date object
+
+    def get_spot_data(self, cross, start, end):
+        if isinstance(start, dt.datetime):
+            start = start.date()
+        if isinstance(end, dt.datetime):
+            end = end.date()
+
+        data_series = TSDB.get_data(cross.value, start=start, end=end)
+        df = pd.DataFrame(data_series, columns=['spot'])
+        df.index = pd.to_datetime(df.index)  # Ensure datetime index
+        df.index.name = 'date'
+        return df
+
+    def calculate_resampled_returns(self, df, window_size):
+        resampled = df['spot'].rolling(window=window_size, min_periods=1).apply(
+            lambda x: (x[-1] / x[0] - 1) * 100 if len(x) > 1 else 0, raw=True
+        )
+        df['rolling_return'] = resampled
+        return df
+
+    def find_top_moves(self, df):
+        df['highlight'] = 0
+        sorted_moves = df.sort_values(by='rolling_return', ascending=(self.direction == Direction.DOWN)).dropna(subset=['rolling_return'])
+        selected_moves = []
+        window_size = self.get_window_size()
+
+        for idx in sorted_moves.index:
+            if len(selected_moves) >= self.num_moves:
+                break
+
+            try:
+                window_indices = df.loc[:idx].index[-window_size:]
+            except IndexError:
+                continue
+
+            overlap = any(any(start <= date <= end for date in window_indices) for start, end, _ in selected_moves)
+            if not overlap:
+                df.loc[idx, 'highlight'] = 1  # Mark only the end date of the window
+                selected_moves.append((window_indices[0], window_indices[-1], df.loc[idx, 'rolling_return']))
+
+        return df, selected_moves
+
+    def get_window_size(self):
+        if self.window == Window.T1W:
+            return 5
+        elif self.window == Window.T2W:
+            return 10
+        elif self.window == Window.T1M:
+            return 21
+        elif self.window == Window.T2M:
+            return 42
+        elif self.window == Window.T3M:
+            return 63
+        else:
+            raise ValueError("Unsupported window size.")
+
+    def process(self) -> pd.DataFrame:
+        years = int(self.history.value[:-1])
+        start_date = self.end_date - dt.timedelta(days=years * 365)
+
+        df = self.get_spot_data(self.cross, start_date, self.end_date)
+
+        window_size = self.get_window_size()
+        df = self.calculate_resampled_returns(df, window_size)
+
+        df, selected_moves = self.find_top_moves(df)
+
+        # Add Start and End date columns for the selected moves
+        selected_moves_df = pd.DataFrame(selected_moves, columns=['StartDate', 'EndDate', 'Return'])
+        return df[['spot', 'rolling_return', 'highlight']].round(self.precision), selected_moves_df
+
+# Component Class with Plotly Visualization using shapes.append
+class BigMovesComponent(AnalyticsComponent):
+    def __init__(self,
+                 cross: Union[Cross, None] = Cross.EURUSD,
+                 end_date: Union[str, None] = None,
+                 history: Union[History, None] = History.T10Y,
+                 num_moves: int = 10,
+                 window: Union[Window, None] = Window.T1M,
+                 direction: Union[Direction, None] = Direction.UP,
+                 precision: int = 4):
+        super().__init__()
+        self.cross = cross or self.get_default_params()['cross']
+        self.end_date = end_date
+        self.history = history
+        self.num_moves = num_moves
+        self.window = window
+        self.direction = direction
+        self.precision = precision
+        self.engine = BigMoves(cross=self.cross, end_date=self.end_date, history=self.history,
+                               num_moves=self.num_moves, window=self.window, direction=self.direction,
+                               precision=self.precision)
+
+    def get_visualization(self) -> go.Figure:
+        df, selected_moves_df = self.engine.process()  # Dataframe with 'highlight' column and selected moves
+
+        # Customizable colors
+        spot_line_color = 'rgb(0, 123, 255)'  # Spot line color
+        shaded_area_color = 'rgba(255, 0, 0, 0.3)'  # Shaded area color
+
+        # Create a Plotly figure
+        fig = go.Figure()
+
+        # Plot historical spot data
+        fig.add_trace(go.Scatter(
+            x=df.index,
+            y=df['spot'],
+            mode='lines',
+            name='Spot Data',
+            line=dict(color=spot_line_color)
+        ))
+
+        # Highlight each big move window
+        for _, row in selected_moves_df.iterrows():
+            fig.add_shape(
+                type="rect",
+                xref="x",
+                yref="paper",
+                x0=row['StartDate'],
+                x1=row['EndDate'],
+                y0=0,
+                y1=1,
+                fillcolor=shaded_area_color,
+                opacity=0.3,
+                layer="below",
+                line_width=0
+            )
+
+        # Set layout for the figure
+        fig.update_layout(
+            title=dict(text=f"Big Moves for {self.cross.name}", x=0.5),
+            xaxis_title="Date",
+            yaxis_title="Spot",
+            width=1000,
+            height=600,
+            xaxis=dict(showgrid=False),
+            yaxis=dict(showgrid=False)
+        )
+        return fig
+
+    @staticmethod
+    def get_default_params() -> Dict[str, object]:
+        return {'cross': Cross.EURUSD}
+
+    @staticmethod
+    def get_visualization_parameters() -> VisualizationParameters:
+        return VisualizationParameters(show_legend=True, precision=2)
+
+    @property
+    def metadata(self) -> Dict[str, str]:
+        return {MetaDataKeys.Title: f"Big Moves Analysis for {self.cross}"}
+
+# Instantiate and show the component
+component = BigMovesComponent(
+    cross=Cross.EURUSD,
+    end_date=None,
+    history=History.T10Y,
+    num_moves=10,
+    window=Window.T1M,
+    direction=Direction.UP,
+    precision=4
+)
+component.get_visualization().show()
