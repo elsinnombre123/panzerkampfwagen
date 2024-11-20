@@ -128,27 +128,35 @@ class BigMovesComponent(AnalyticsComponent):
             line=dict(color='blue')
         ))
     
-        # Highlight contiguous periods where highlight == 1
+        # Highlight contiguous periods where highlight == 1 using shapes.append
         highlighted_periods = self.engine.data[self.engine.data['highlight'] == 1]
+        shapes = []
         if not highlighted_periods.empty:
             start_idx = None
             for i, date in enumerate(highlighted_periods.index):
                 if start_idx is None:
                     start_idx = date  # Start of a highlighted window
-                
+    
                 # Check if next date is not contiguous or if it's the last point in the series
                 is_last = (i == len(highlighted_periods.index) - 1)
                 next_date_is_not_contiguous = (not is_last and highlighted_periods.index[i + 1] != date + pd.Timedelta(days=1))
     
                 if is_last or next_date_is_not_contiguous:
                     end_idx = date  # End of the highlighted window
-                    fig.add_vrect(
-                        x0=start_idx,
-                        x1=end_idx,
-                        fillcolor="red",
-                        opacity=0.3,
-                        layer="below",
-                        line_width=0
+                    shapes.append(
+                        dict(
+                            type="rect",
+                            xref="x",
+                            yref="paper",
+                            x0=start_idx,
+                            x1=end_idx,
+                            y0=0,
+                            y1=1,
+                            fillcolor="red",
+                            opacity=0.3,
+                            layer="below",
+                            line_width=0
+                        )
                     )
                     start_idx = None  # Reset for the next window
     
@@ -160,7 +168,8 @@ class BigMovesComponent(AnalyticsComponent):
             width=1000,
             height=600,
             xaxis=dict(showgrid=False),
-            yaxis=dict(showgrid=False)
+            yaxis=dict(showgrid=False),
+            shapes=shapes  # Add the shapes to the layout
         )
         return fig
 
