@@ -157,16 +157,15 @@ class BigMovesComponent(AnalyticsComponent):
                                precision=self.precision)
 
     def get_visualization(self) -> go.Figure:
-        df = self.engine.process()
-        spot_data = self.engine.data.reset_index()  # Assuming engine.data provides the raw spot data
+        df = self.engine.process()  # Dataframe with 'spot', 'rolling_return', and 'highlight' columns
     
         # Create a Plotly figure
         fig = go.Figure()
     
         # Plot historical spot data
         fig.add_trace(go.Scatter(
-            x=spot_data['date'], 
-            y=spot_data['spot'], 
+            x=df.index, 
+            y=df['spot'], 
             mode='lines', 
             name='Spot Data',
             line=dict(color='blue')
@@ -223,6 +222,7 @@ class BigMovesComponent(AnalyticsComponent):
             yaxis=dict(showgrid=False)
         )
         return fig
+
 
     @staticmethod
     def get_default_params() -> Dict[str, object]:
