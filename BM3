@@ -157,52 +157,61 @@ class BigMovesComponent(AnalyticsComponent):
                                precision=self.precision)
 
     def get_visualization(self) -> go.Figure:
-        df = self.engine.process()  # Dataframe with 'spot', 'rolling_return', and 'highlight' columns
-
+        df = self.engine.process()
+        spot_data = self.engine.data.reset_index()  # Assuming engine.data provides the raw spot data
+    
         # Create a Plotly figure
         fig = go.Figure()
-
+    
         # Plot historical spot data
         fig.add_trace(go.Scatter(
-            x=df.index, 
-            y=df['spot'], 
+            x=spot_data['date'], 
+            y=spot_data['spot'], 
             mode='lines', 
             name='Spot Data',
             line=dict(color='blue')
         ))
-
-        # Highlight contiguous periods where highlight == 1 using shapes.append
+    
+        # Highlight contiguous periods where highlight == 1
         highlighted_periods = df[df['highlight'] == 1]
-        shapes = []
         if not highlighted_periods.empty:
-            start_idx = None
-            for i, date in enumerate(highlighted_periods.index):
-                if start_idx is None:
-                    start_idx = date  # Start of a highlighted window
-
-                # Check if next date is not contiguous or if it's the last point in the series
-                is_last = (i == len(highlighted_periods.index) - 1)
-                next_date_is_not_contiguous = (not is_last and highlighted_periods.index[i + 1] != date + pd.Timedelta(days=1))
-
-                if is_last or next_date_is_not_contiguous:
-                    end_idx = date  # End of the highlighted window
-                    shapes.append(
-                        dict(
-                            type="rect",
-                            xref="x",
-                            yref="paper",
-                            x0=start_idx,
-                            x1=end_idx,
-                            y0=0,
-                            y1=1,
-                            fillcolor="red",
-                            opacity=0.3,
-                            layer="below",
-                            line_width=0
-                        )
+            start_idx = highlighted_periods.index[0]
+            for i in range(1, len(highlighted_periods)):
+                # Check if the current index is contiguous with the previous one
+                if highlighted_periods.index[i] != highlighted_periods.index[i - 1] + pd.Timedelta(days=1):
+                    # End of a contiguous block
+                    end_idx = highlighted_periods.index[i - 1]
+                    fig.add_shape(
+                        type="rect",
+                        xref="x",
+                        yref="paper",
+                        x0=start_idx,
+                        x1=end_idx,
+                        y0=0,
+                        y1=1,
+                        fillcolor="red",
+                        opacity=0.3,
+                        layer="below",
+                        line_width=0
                     )
-                    start_idx = None  # Reset for the next window
-
+                    # Start a new block
+                    start_idx = highlighted_periods.index[i]
+            # Add the final block
+            end_idx = highlighted_periods.index[-1]
+            fig.add_shape(
+                type="rect",
+                xref="x",
+                yref="paper",
+                x0=start_idx,
+                x1=end_idx,
+                y0=0,
+                y1=1,
+                fillcolor="red",
+                opacity=0.3,
+                layer="below",
+                line_width=0
+            )
+    
         # Set layout for the figure
         fig.update_layout(
             title=dict(text=f"Big Moves for {self.cross.name}", x=0.5),
@@ -211,8 +220,7 @@ class BigMovesComponent(AnalyticsComponent):
             width=1000,
             height=600,
             xaxis=dict(showgrid=False),
-            yaxis=dict(showgrid=False),
-            shapes=shapes  # Add the shapes to the layout
+            yaxis=dict(showgrid=False)
         )
         return fig
 
