@@ -1,0 +1,73 @@
+def plot_volatility_ratios(ratio_df, ccy_list, tenor1, tenor2, colors):
+    """
+    Plot boxplots of volatility ratios for given currency pairs.
+
+    Parameters:
+    - ratio_df: DataFrame of volatility ratios (output from get_volatility_ratios).
+    - ccy_list: List of currency pairs.
+    - tenor1, tenor2: The tenors being compared (e.g., '1m', '3m').
+    - colors: List of RGB tuples for each ccy in ccy_list.
+    """
+    # Calculate the latest values and percentiles
+    latest_values = ratio_df.iloc[-1]
+    percentiles = ratio_df.rank(pct=True).iloc[-1]
+
+    # Convert RGB colors to Matplotlib format (0-1 range)
+    normalized_colors = [(r / 255, g / 255, b / 255) for r, g, b in colors]
+
+    # Create the figure and axis
+    fig, ax = plt.subplots(figsize=(12, 8))
+
+    # Plot the boxplots (default style)
+    bp = ratio_df.boxplot(
+        ax=ax,
+        vert=True,
+        widths=0.6,
+        patch_artist=True,  # Allow us to customize box colors
+        boxprops=dict(edgecolor='black'),  # Box edge color
+        medianprops=dict(color='black', linewidth=2),  # Median line style
+        whiskerprops=dict(color='black'),  # Whisker line style
+        capprops=dict(color='black'),  # Whisker cap line style
+        flierprops=dict(marker='o', markerfacecolor='gray', markersize=6, linestyle='none')  # Outlier style
+    )
+
+    # Disable grid lines
+    ax.grid(False)
+
+    # Set box colors based on the provided color list
+    for patch, color in zip(bp['boxes'], normalized_colors):
+        patch.set_facecolor(color)
+
+    # Highlight the latest value for each currency with a custom marker
+    for i, (ccy, color) in enumerate(zip(ccy_list, normalized_colors), start=1):
+        latest_value = latest_values[ccy]
+        ax.scatter(
+            i, latest_value, 
+            color='white', edgecolor=color, s=100, zorder=5, label=f'{ccy} Latest Value', marker='D'
+        )  # White-filled diamond with colored border
+
+    # Add annotations for percentiles
+    for i, ccy in enumerate(ccy_list, start=1):
+        latest_value = latest_values[ccy]
+        percentile = percentiles[ccy]
+        ax.text(i, latest_value, f'{percentile:.0%}', 
+                ha='center', va='bottom', fontsize=9, color='black')  # Black text for readability
+
+    # Add title and byline
+    title = f"Tenor Ratio Analysis ({tenor1}/{tenor2})"
+    byline = "Source: TSDB | Author: Your Name"
+    ax.set_title(title, fontsize=16)
+    fig.text(0.5, 0.02, byline, ha='center', fontsize=10)
+
+    # Adjust layout and show the plot
+    plt.tight_layout()
+    plt.show()
+
+colors = [
+    (255, 99, 71),   # Tomato
+    (135, 206, 235), # Sky Blue
+    (144, 238, 144), # Light Green
+    (255, 215, 0),   # Gold
+    (238, 130, 238), # Violet
+    (70, 130, 180)   # Steel Blue
+]
