@@ -1,69 +1,88 @@
 from typing import Dict, Union, List
+import pandas as pd
+from datetime import datetime
 from gs_quant.datetime.relative_date import RelativeDate
 from gs_quant_analytics.interfaces.analytics_component_interface import AnalyticsComponent, MetaDataKeys
 from gs_quant_analytics.dataviz.plotly.plotlyviz import PlotlyViz
 from gs_quant_analytics.dataviz.figures.go_table import GoTable
-from gs_quant_analytics.visualization.params import VisualizationParameters
-from datetime import datetime
-from script1 import TENOR, PERCENTILES, RiskConeEngine
+from gs_quant_analytics.visualization_params import VisualizationParameters
 
 
 class RiskConeTableComponent(AnalyticsComponent):
     def __init__(
         self,
-        pricing_date: Union[RelativeDate, datetime] = RelativeDate("0b"),
-        end_date: TENOR = TENOR.ONE_YEAR,
-        ccy: str = "USD",
+        pricing_date: Union[datetime, RelativeDate] = None,
+        end_date: str = "1y",
+        ccy_under: str = "EUR",
+        ccy_over: str = "USD",
+        ccy_payout: str = None,
+        freq: str = "W-FRI",
+        csa_term: str = "USD-1",
+        market_data_location: str = "NYC",
         percentiles: PERCENTILES = PERCENTILES.NINETY_FIVE,
         precision: int = 4,
         tenor: List[TENOR] = [TENOR.SIX_MONTHS, TENOR.NINE_MONTHS, TENOR.ONE_YEAR],
     ):
         super().__init__()
-        self.pricing_date = pricing_date
+        self.pricing_date = pricing_date or self.get_default_params()["pricing_date"]
         self.end_date = end_date
-        self.ccy = ccy
+        self.ccy_under = ccy_under
+        self.ccy_over = ccy_over
+        self.ccy_payout = ccy_payout or ccy_over
+        self.freq = freq
+        self.csa_term = csa_term
+        self.market_data_location = market_data_location
         self.percentiles = percentiles
         self.precision = precision
         self.tenor = tenor
         self.engine = RiskConeEngine(
             pricing_date=self.pricing_date,
-            end_date=self.end_date.value,
-            ccy=self.ccy,
+            end_date=self.end_date,
+            ccy_under=self.ccy_under,
+            ccy_over=self.ccy_over,
+            ccy_payout=self.ccy_payout,
+            freq=self.freq,
+            csa_term=self.csa_term,
+            market_data_location=self.market_data_location,
             percentiles=self.percentiles,
             precision=self.precision,
             tenor=self.tenor,
         )
 
     def process_data(self) -> pd.DataFrame:
-        # Get the processed dataframe from the engine
+        # Retrieve the dataframe from the engine
         df = self.engine.process()
 
-        # Extract relevant rows for the defined tenor
-        highlight_dates = [df.index[0]]  # 'Today' (first row in df)
-        for t in self.tenor:
-            highlight_dates.append(self.engine.highlight_dates[t.value])
+        # Define labels for the rows
+        highlight_dates = [df.index[0]]  # "Today" corresponds to the first date
+        highlight_labels = ["Today"]
 
-        # Build the output table
+        # Append the tenor dates and their corresponding labels
+        for t in self.tenor:
+            if t.value in self.engine.highlight_dates:
+                highlight_dates.append(self.engine.highlight_dates[t.value])
+                highlight_labels.append(t.value)
+
+        # Build the final table
         rows = []
-        for date, t in zip(highlight_dates, ["Today"] + [t.value for t in self.tenor]):
+        for date, label in zip(highlight_dates, highlight_labels):
             if date in df.index:
-                row = {
+                rows.append({
                     "Date": date,
-                    "Label": t,
+                    "Label": label,
                     "Current Spot": df.loc[date, "Current Spot"],
                     "Forward Curve": df.loc[date, "Forward Curve"],
                     f"{int(self.percentiles.value[0] * 100)}th Percentile": df.loc[date, f"{int(self.percentiles.value[0] * 100)}th Percentile"],
                     f"{int(self.percentiles.value[1] * 100)}th Percentile": df.loc[date, f"{int(self.percentiles.value[1] * 100)}th Percentile"],
-                }
-                rows.append(row)
+                })
 
         return pd.DataFrame(rows).round(self.precision)
 
     def get_visualization(self) -> PlotlyViz:
-        # Process the data into a DataFrame
+        # Process the data into a table format
         df = self.process_data()
 
-        # Create a Plotly table visualization
+        # Create and return a Plotly table
         viz = PlotlyViz()
         table = GoTable(df=df)
         viz.add_trace(table)
@@ -73,8 +92,13 @@ class RiskConeTableComponent(AnalyticsComponent):
     def get_default_params() -> Dict[str, object]:
         return {
             "pricing_date": RelativeDate("0b"),
-            "end_date": TENOR.ONE_YEAR,
-            "ccy": "USD",
+            "end_date": "1y",
+            "ccy_under": "EUR",
+            "ccy_over": "USD",
+            "ccy_payout": "USD",
+            "freq": "W-FRI",
+            "csa_term": "USD-1",
+            "market_data_location": "NYC",
             "percentiles": PERCENTILES.NINETY_FIVE,
             "precision": 4,
             "tenor": [TENOR.SIX_MONTHS, TENOR.NINE_MONTHS, TENOR.ONE_YEAR],
@@ -82,7 +106,7 @@ class RiskConeTableComponent(AnalyticsComponent):
 
     @staticmethod
     def get_visualization_parameters() -> VisualizationParameters:
-        return VisualizationParameters(precision=1)
+        return VisualizationParameters(precision=4)
 
     @property
     def metadata(self) -> Dict[str, str]:
@@ -94,11 +118,17 @@ class RiskConeTableComponent(AnalyticsComponent):
 from gs_quant.session import GsSession
 GsSession.use()
 
-RiskConeTableComponent(
+component = RiskConeTableComponent(
     pricing_date=RelativeDate("0b"),
-    end_date=TENOR.ONE_YEAR,
-    ccy="USD",
+    end_date="1y",
+    ccy_under="EUR",
+    ccy_over="USD",
+    ccy_payout="USD",
+    freq="W-FRI",
+    csa_term="USD-1",
+    market_data_location="NYC",
     percentiles=PERCENTILES.NINETY_FIVE,
     precision=4,
     tenor=[TENOR.SIX_MONTHS, TENOR.NINE_MONTHS, TENOR.ONE_YEAR],
-).show()
+)
+component.show()
