@@ -1,7 +1,8 @@
 from typing import Dict, Union, List
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, date
 from gs_quant.datetime.relative_date import RelativeDate
+from gs_quant.datetime.date import business_day_offset
 from gs_quant_analytics.interfaces.analytics_component_interface import AnalyticsComponent, MetaDataKeys
 from gs_quant_analytics.dataviz.plotly.plotlyviz import PlotlyViz
 from gs_quant_analytics.dataviz.figures.go_table import GoTable
@@ -24,7 +25,12 @@ class RiskConeTableComponent(AnalyticsComponent):
         tenor: List[TENOR] = [TENOR.SIX_MONTHS, TENOR.NINE_MONTHS, TENOR.ONE_YEAR],
     ):
         super().__init__()
-        self.pricing_date = pricing_date or self.get_default_params()["pricing_date"]
+        # Resolve pricing_date to a valid datetime.date if it's RelativeDate
+        self.pricing_date = (
+            business_day_offset(pricing_date.apply_rule(), 0, roll="forward")
+            if isinstance(pricing_date, RelativeDate)
+            else pricing_date or date.today()
+        )
         self.end_date = end_date
         self.ccy_under = ccy_under
         self.ccy_over = ccy_over
@@ -114,12 +120,14 @@ class RiskConeTableComponent(AnalyticsComponent):
             MetaDataKeys.TITLE: "Risk Cone Table",
         }
 
+
 # Instantiation Example
 from gs_quant.session import GsSession
+import datetime
 GsSession.use()
 
 component = RiskConeTableComponent(
-    pricing_date=RelativeDate("0b"),
+    pricing_date=datetime.date.today(),
     end_date="1y",
     ccy_under="EUR",
     ccy_over="USD",
