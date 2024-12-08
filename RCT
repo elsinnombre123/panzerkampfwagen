@@ -25,7 +25,6 @@ class RiskConeTableComponent(AnalyticsComponent):
         tenor: List[TENOR] = [TENOR.SIX_MONTHS, TENOR.NINE_MONTHS, TENOR.ONE_YEAR],
     ):
         super().__init__()
-        # Resolve pricing_date to a valid datetime.date if it's RelativeDate
         self.pricing_date = (
             business_day_offset(pricing_date.apply_rule(), 0, roll="forward")
             if isinstance(pricing_date, RelativeDate)
@@ -63,25 +62,26 @@ class RiskConeTableComponent(AnalyticsComponent):
         highlight_dates = [df.index[0]]  # "Today" corresponds to the first date
         highlight_labels = ["Today"]
 
-        # Append the tenor dates and their corresponding labels
+        # Approximate missing tenor dates to the nearest available date in df
         for t in self.tenor:
             highlight_date = self.engine.highlight_dates.get(t.value)
-            if highlight_date:  # Only add if the date exists in the highlight_dates
-                highlight_dates.append(highlight_date)
+            if highlight_date:
+                # Find the closest available date in the dataframe
+                closest_date = min(df.index, key=lambda x: abs(x - highlight_date))
+                highlight_dates.append(closest_date)
                 highlight_labels.append(t.value)
 
-        # Build the final table
+        # Prepare rows for the table
         rows = []
         for date, label in zip(highlight_dates, highlight_labels):
-            if date in df.index:
-                rows.append({
-                    "Date": date,
-                    "Label": label,
-                    "Current Spot": df.loc[date, "Current Spot"],
-                    "Forward Curve": df.loc[date, "Forward Curve"],
-                    f"{int(self.percentiles.value[0] * 100)}th Percentile": df.loc[date, f"{int(self.percentiles.value[0] * 100)}th Percentile"],
-                    f"{int(self.percentiles.value[1] * 100)}th Percentile": df.loc[date, f"{int(self.percentiles.value[1] * 100)}th Percentile"],
-                })
+            rows.append({
+                "Date": date,
+                "Label": label,
+                "Current Spot": df.loc[date, "Current Spot"],
+                "Forward Curve": df.loc[date, "Forward Curve"],
+                f"{int(self.percentiles.value[0] * 100)}th Percentile": df.loc[date, f"{int(self.percentiles.value[0] * 100)}th Percentile"],
+                f"{int(self.percentiles.value[1] * 100)}th Percentile": df.loc[date, f"{int(self.percentiles.value[1] * 100)}th Percentile"],
+            })
 
         # Convert rows into a DataFrame
         return pd.DataFrame(rows).round(self.precision)
