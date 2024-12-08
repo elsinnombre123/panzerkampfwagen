@@ -1,22 +1,18 @@
 from typing import Dict, Union, List
-import datetime
-from datetime import timedelta, date
 import pandas as pd
+from datetime import datetime, date
+from gs_quant.datetime.relative_date import RelativeDate
+from gs_quant.datetime.date import business_day_offset
+from gs_quant_analytics.interfaces.analytics_component_interface import AnalyticsComponent, MetaDataKeys
 from gs_quant_analytics.dataviz.plotly.plotlyviz import PlotlyViz
 from gs_quant_analytics.dataviz.figures.go_table import GoTable
-from gs_quant.datetime.relative_date import RelativeDate
-from gs_quant_analytics.interfaces.analytics_component_interface import (
-    AnalyticsComponent,
-    MetaDataKeys,
-)
 from gs_quant_analytics.visualization_params import VisualizationParameters
-from gs_quant_internal.tdapi import tdapi
-from gs_quant.datetime import business_day_offset
+
 
 class RiskConeTableComponent(AnalyticsComponent):
     def __init__(
         self,
-        pricing_date: Union[datetime.date, RelativeDate] = None,
+        pricing_date: Union[datetime, RelativeDate] = None,
         end_date: str = "1y",
         ccy_under: str = "EUR",
         ccy_over: str = "USD",
@@ -24,15 +20,17 @@ class RiskConeTableComponent(AnalyticsComponent):
         freq: str = "W-FRI",
         csa_term: str = "USD-1",
         market_data_location: str = "NYC",
-        percentiles: PercentilesParam = PercentilesParam.NINETY_FIVE,
+        percentiles: PERCENTILES = PERCENTILES.NINETY_FIVE,
         precision: int = 4,
         tenor: List[TENOR] = [TENOR.SIX_MONTHS, TENOR.NINE_MONTHS, TENOR.ONE_YEAR],
     ):
-        """
-        Table visualization component for the Risk Cone data.
-        """
         super().__init__()
-        self.pricing_date = pricing_date or self.get_default_params()["pricing_date"]
+        # Resolve pricing_date to a valid datetime.date if it's RelativeDate
+        self.pricing_date = (
+            business_day_offset(pricing_date.apply_rule(), 0, roll="forward")
+            if isinstance(pricing_date, RelativeDate)
+            else pricing_date or date.today()
+        )
         self.end_date = end_date
         self.ccy_under = ccy_under
         self.ccy_over = ccy_over
@@ -52,82 +50,98 @@ class RiskConeTableComponent(AnalyticsComponent):
             freq=self.freq,
             csa_term=self.csa_term,
             market_data_location=self.market_data_location,
-            percentiles=PERCENTILES[self.percentiles.name],
+            percentiles=self.percentiles,
             precision=self.precision,
             tenor=self.tenor,
         )
 
     def process_data(self) -> pd.DataFrame:
-        """
-        Process the data to include only rows for the specified tenors.
-        """
-        engine_df = self.engine.process()
-        highlight_dates = []
-        highlight_labels = []
+        # Retrieve the dataframe from the engine
+        df = self.engine.process()
 
-        # Ensure tenor highlights are valid
-        if self.tenor:
-            for t in self.tenor:
-                # Compute the expected date for the tenor
-                highlight_date = self.engine.pricing_date + VALID_PERIODS[t.value]
-                # Find the closest available date in the DataFrame
-                closest_date = min(
-                    engine_df.index, key=lambda x: abs(pd.Timestamp(x) - highlight_date)
-                )
-                highlight_dates.append(closest_date)
+        # Define labels for the rows
+        highlight_dates = [df.index[0]]  # "Today" corresponds to the first date
+        highlight_labels = ["Today"]
+
+        # Append the tenor dates and their corresponding labels
+        for t in self.tenor:
+            if t.value in self.engine.highlight_dates:
+                highlight_dates.append(self.engine.highlight_dates[t.value])
                 highlight_labels.append(t.value)
 
-        # Filter the DataFrame to include only the rows for highlight dates
-        filtered_data = engine_df.loc[highlight_dates].copy()
-        filtered_data.insert(0, "Label", highlight_labels)
-        filtered_data.insert(0, "Date", highlight_dates)
+        # Build the final table
+        rows = []
+        for date, label in zip(highlight_dates, highlight_labels):
+            if date in df.index:
+                rows.append({
+                    "Date": date,
+                    "Label": label,
+                    "Current Spot": df.loc[date, "Current Spot"],
+                    "Forward Curve": df.loc[date, "Forward Curve"],
+                    f"{int(self.percentiles.value[0] * 100)}th Percentile": df.loc[date, f"{int(self.percentiles.value[0] * 100)}th Percentile"],
+                    f"{int(self.percentiles.value[1] * 100)}th Percentile": df.loc[date, f"{int(self.percentiles.value[1] * 100)}th Percentile"],
+                })
 
-        return filtered_data
+        return pd.DataFrame(rows).round(self.precision)
 
     def get_visualization(self) -> PlotlyViz:
-        """
-        Return the table visualization using PlotlyViz.
-        """
-        viz = PlotlyViz()
+        # Process the data into a table format
         df = self.process_data()
 
-        table = GoTable(
-            data=df,
-            header=["Date", "Label", "Current Spot", "Forward Curve", "95th Percentile", "5th Percentile"],
-        )
+        # Ensure the DataFrame is non-empty and structured properly
+        if df.empty:
+            raise ValueError("The processed DataFrame is empty and cannot be visualized.")
+
+        # Prepare header and cells for GoTable
+        table_header = {
+            "values": list(df.columns),
+            "align": "center",
+            "fill_color": "lightgrey",
+            "font": {"size": 12, "color": "black"},
+        }
+        table_cells = {
+            "values": [df[col].tolist() for col in df.columns],
+            "align": "center",
+            "fill_color": "white",
+            "font": {"size": 11, "color": "black"},
+        }
+
+        # Create and return a Plotly table
+        viz = PlotlyViz()
+        table = GoTable(header=table_header, cells=table_cells)
         viz.add_trace(table)
         return viz
 
     @staticmethod
     def get_default_params() -> Dict[str, object]:
-        """
-        Default parameters for the component.
-        """
         return {
-            "pricing_date": datetime.date.today(),
-            "percentiles": PercentilesParam.NINETY_FIVE,
+            "pricing_date": RelativeDate("0b"),
+            "end_date": "1y",
+            "ccy_under": "EUR",
+            "ccy_over": "USD",
+            "ccy_payout": "USD",
+            "freq": "W-FRI",
+            "csa_term": "USD-1",
+            "market_data_location": "NYC",
+            "percentiles": PERCENTILES.NINETY_FIVE,
             "precision": 4,
+            "tenor": [TENOR.SIX_MONTHS, TENOR.NINE_MONTHS, TENOR.ONE_YEAR],
         }
 
     @staticmethod
     def get_visualization_parameters() -> VisualizationParameters:
-        """
-        Visualization parameters for the component.
-        """
         return VisualizationParameters(precision=4)
 
     @property
-    def metadata(self):
-        """
-        Metadata for the component.
-        """
-        title = "Risk Cone Table"
-        return {MetaDataKeys.TITLE: title}
+    def metadata(self) -> Dict[str, str]:
+        return {
+            MetaDataKeys.TITLE: "Risk Cone Table",
+        }
 
-# Initialization Example
+
+# Instantiation Example
 from gs_quant.session import GsSession
 import datetime
-
 GsSession.use()
 
 component = RiskConeTableComponent(
@@ -139,7 +153,7 @@ component = RiskConeTableComponent(
     freq="W-FRI",
     csa_term="USD-1",
     market_data_location="NYC",
-    percentiles=PercentilesParam.NINETY_FIVE,
+    percentiles=PERCENTILES.NINETY_FIVE,
     precision=4,
     tenor=[TENOR.SIX_MONTHS, TENOR.NINE_MONTHS, TENOR.ONE_YEAR],
 )
