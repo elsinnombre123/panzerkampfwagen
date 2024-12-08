@@ -88,25 +88,27 @@ class RiskConeTableComponent(AnalyticsComponent):
         # Process the data into a table format
         df = self.process_data()
 
-        # Prepare data for the GoTable
-        table_data = {
-            "header": {
-                "values": list(df.columns),
-                "align": "center",
-                "fill_color": "lightgrey",
-                "font": {"size": 12, "color": "black"},
-            },
-            "cells": {
-                "values": [df[col].tolist() for col in df.columns],
-                "align": "center",
-                "fill_color": "white",
-                "font": {"size": 11, "color": "black"},
-            },
+        # Ensure the DataFrame is non-empty and structured properly
+        if df.empty:
+            raise ValueError("The processed DataFrame is empty and cannot be visualized.")
+
+        # Prepare header and cells for GoTable
+        table_header = {
+            "values": list(df.columns),
+            "align": "center",
+            "fill_color": "lightgrey",
+            "font": {"size": 12, "color": "black"},
+        }
+        table_cells = {
+            "values": [df[col].tolist() for col in df.columns],
+            "align": "center",
+            "fill_color": "white",
+            "font": {"size": 11, "color": "black"},
         }
 
         # Create and return a Plotly table
         viz = PlotlyViz()
-        table = GoTable(header=table_data["header"], cells=table_data["cells"])
+        table = GoTable(header=table_header, cells=table_cells)
         viz.add_trace(table)
         return viz
 
