@@ -65,8 +65,9 @@ class RiskConeTableComponent(AnalyticsComponent):
 
         # Append the tenor dates and their corresponding labels
         for t in self.tenor:
-            if t.value in self.engine.highlight_dates:
-                highlight_dates.append(self.engine.highlight_dates[t.value])
+            highlight_date = self.engine.highlight_dates.get(t.value)
+            if highlight_date:  # Only add if the date exists in the highlight_dates
+                highlight_dates.append(highlight_date)
                 highlight_labels.append(t.value)
 
         # Build the final table
@@ -82,6 +83,7 @@ class RiskConeTableComponent(AnalyticsComponent):
                     f"{int(self.percentiles.value[1] * 100)}th Percentile": df.loc[date, f"{int(self.percentiles.value[1] * 100)}th Percentile"],
                 })
 
+        # Convert rows into a DataFrame
         return pd.DataFrame(rows).round(self.precision)
 
     def get_visualization(self) -> PlotlyViz:
