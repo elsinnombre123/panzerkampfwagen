@@ -67,7 +67,7 @@ class RiskConeTableComponent(AnalyticsComponent):
             highlight_date = self.engine.highlight_dates.get(t.value)
             if highlight_date:
                 # Find the closest available date in the dataframe
-                closest_date = min(df.index, key=lambda x: abs(x - highlight_date))
+                closest_date = min(df.index, key=lambda x: abs((x - highlight_date).days))
                 highlight_dates.append(closest_date)
                 highlight_labels.append(t.value)
 
