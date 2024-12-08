@@ -1,0 +1,104 @@
+from typing import Dict, Union, List
+from gs_quant.datetime.relative_date import RelativeDate
+from gs_quant_analytics.interfaces.analytics_component_interface import AnalyticsComponent, MetaDataKeys
+from gs_quant_analytics.dataviz.plotly.plotlyviz import PlotlyViz
+from gs_quant_analytics.dataviz.figures.go_table import GoTable
+from gs_quant_analytics.visualization.params import VisualizationParameters
+from datetime import datetime
+from script1 import TENOR, PERCENTILES, RiskConeEngine
+
+
+class RiskConeTableComponent(AnalyticsComponent):
+    def __init__(
+        self,
+        pricing_date: Union[RelativeDate, datetime] = RelativeDate("0b"),
+        end_date: TENOR = TENOR.ONE_YEAR,
+        ccy: str = "USD",
+        percentiles: PERCENTILES = PERCENTILES.NINETY_FIVE,
+        precision: int = 4,
+        tenor: List[TENOR] = [TENOR.SIX_MONTHS, TENOR.NINE_MONTHS, TENOR.ONE_YEAR],
+    ):
+        super().__init__()
+        self.pricing_date = pricing_date
+        self.end_date = end_date
+        self.ccy = ccy
+        self.percentiles = percentiles
+        self.precision = precision
+        self.tenor = tenor
+        self.engine = RiskConeEngine(
+            pricing_date=self.pricing_date,
+            end_date=self.end_date.value,
+            ccy=self.ccy,
+            percentiles=self.percentiles,
+            precision=self.precision,
+            tenor=self.tenor,
+        )
+
+    def process_data(self) -> pd.DataFrame:
+        # Get the processed dataframe from the engine
+        df = self.engine.process()
+
+        # Extract relevant rows for the defined tenor
+        highlight_dates = [df.index[0]]  # 'Today' (first row in df)
+        for t in self.tenor:
+            highlight_dates.append(self.engine.highlight_dates[t.value])
+
+        # Build the output table
+        rows = []
+        for date, t in zip(highlight_dates, ["Today"] + [t.value for t in self.tenor]):
+            if date in df.index:
+                row = {
+                    "Date": date,
+                    "Label": t,
+                    "Current Spot": df.loc[date, "Current Spot"],
+                    "Forward Curve": df.loc[date, "Forward Curve"],
+                    f"{int(self.percentiles.value[0] * 100)}th Percentile": df.loc[date, f"{int(self.percentiles.value[0] * 100)}th Percentile"],
+                    f"{int(self.percentiles.value[1] * 100)}th Percentile": df.loc[date, f"{int(self.percentiles.value[1] * 100)}th Percentile"],
+                }
+                rows.append(row)
+
+        return pd.DataFrame(rows).round(self.precision)
+
+    def get_visualization(self) -> PlotlyViz:
+        # Process the data into a DataFrame
+        df = self.process_data()
+
+        # Create a Plotly table visualization
+        viz = PlotlyViz()
+        table = GoTable(df=df)
+        viz.add_trace(table)
+        return viz
+
+    @staticmethod
+    def get_default_params() -> Dict[str, object]:
+        return {
+            "pricing_date": RelativeDate("0b"),
+            "end_date": TENOR.ONE_YEAR,
+            "ccy": "USD",
+            "percentiles": PERCENTILES.NINETY_FIVE,
+            "precision": 4,
+            "tenor": [TENOR.SIX_MONTHS, TENOR.NINE_MONTHS, TENOR.ONE_YEAR],
+        }
+
+    @staticmethod
+    def get_visualization_parameters() -> VisualizationParameters:
+        return VisualizationParameters(precision=1)
+
+    @property
+    def metadata(self) -> Dict[str, str]:
+        return {
+            MetaDataKeys.TITLE: "Risk Cone Table",
+        }
+
+# Instantiation Example
+from gs_quant.session import GsSession
+GsSession.use()
+
+RiskConeTableComponent(
+    pricing_date=RelativeDate("0b"),
+    end_date=TENOR.ONE_YEAR,
+    ccy="USD",
+    percentiles=PERCENTILES.NINETY_FIVE,
+    precision=4,
+    tenor=[TENOR.SIX_MONTHS, TENOR.NINE_MONTHS, TENOR.ONE_YEAR],
+).show()
